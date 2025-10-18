@@ -91,6 +91,7 @@ h1, h2, h3 {
 h2 { font-size: 1.6em; }
 p { margin-top: 0; margin-bottom: 1em; }
 .muted { color: var(--muted); font-size: 0.9em; }
+.muted.s { font-size: 0.8em; }
 .error { color: var(--err); font-weight: bold; }
 .lbl { font-size: 0.9em; color: var(--muted); margin-bottom: 4px; display: block; } /* 레이블 스타일 개선 */
 
@@ -162,6 +163,7 @@ button { cursor: pointer; font-family: inherit; }
 .row { display: flex; align-items: center; }
 .stack { display: flex; flex-direction: column; }
 .hidden { display: none !important; } /* 상세 정보 토글용 */
+.center { text-align: center; }
 
 .m-header {
   position: fixed; /* 상단 고정 */

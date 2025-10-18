@@ -1,6 +1,14 @@
 <div id="top"></div>
-<main class="panel p24 gap12">
-  <h2>관리자 지문 인식</h2>
-  <p class="muted">손가락을 센서에 올려주세요… (데모: 직전 로그인 관리자 선택)</p>
-  <div id="admin-list" class="list"></div>
+<main class="auth-shell">
+  <section class="auth-card list-card">
+    <header class="auth-header">
+      <p class="badge">ADMIN</p>
+      <h2>관리자 지문 인식</h2>
+      <p class="muted">등록된 관리자를 선택하거나 센서에 손가락을 올려주세요.</p>
+    </header>
+    <div id="admin-list" class="auth-list"></div>
+    <footer class="auth-footer">
+      <p class="muted s">최근 로그인 순으로 정렬되어 있습니다.</p>
+    </footer>
+  </section>
 </main>
