@@ -47,8 +47,8 @@ export async function initAdminMain() {
 
       list.innerHTML = rows.map(renderCard).join("");
       wire(list, me);
-    } catch (e) {
-      const message = escapeHtml(e?.message || "불러오기 실패");
+    } catch (error) {
+      const message = escapeHtml(error?.message || "불러오기 실패");
       list.innerHTML = `<div class="error">불러오기 실패: ${message}</div>`;
       updateAdminStats({ pendingCount: "-", latest: "-" });
     } finally {
@@ -185,8 +185,8 @@ function wire(root, me) {
         await adminAction({ requestId, action, actorId: me?.id ?? 1, reason });
         if (label) label.textContent = "완료"; else btn.textContent = "완료";
         setTimeout(() => location.reload(), 600);
-      } catch (e) {
-        alert(`${action === "approve" ? "승인" : "거부"} 실패: ${e.message}`);
+      } catch (error) {
+        alert(`${action === "approve" ? "승인" : "거부"} 실패: ${error.message}`);
         btn.disabled = false;
         if (label) label.textContent = original; else btn.textContent = original;
       }
