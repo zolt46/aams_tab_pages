@@ -106,7 +106,7 @@ button { cursor: pointer; font-family: inherit; }
   transition: background-color 0.2s, transform 0.1s, filter 0.2s;
   text-align: center;
 }
-.primary:hover, .secondary:hover, .m-btn:hover { filter: brightness(1.1); }
+.primary:hover, .secondary:hover, .m-btn:hover { filter: brightness(1.08); }
 .primary:active, .secondary:active, .m-btn:active { transform: translateY(1px); }
 
 .primary { background: var(--pri); color: #fff; } /* 텍스트 색상 변경 */
@@ -165,7 +165,6 @@ button { cursor: pointer; font-family: inherit; }
 .row { display: flex; align-items: center; }
 .stack { display: flex; flex-direction: column; }
 .hidden { display: none !important; } /* 상세 정보 토글용 */
-
 
 .m-header {
   position: fixed; /* 상단 고정 */
@@ -382,6 +381,12 @@ button:disabled {
   color: #f3fce9;
 }
 .btn.primary:hover { filter: brightness(1.05); }
+.btn.danger {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.85), rgba(185, 28, 28, 0.85));
+  color: #fee2e2;
+}
+.btn.danger:hover { filter: brightness(1.05); }
 .btn:disabled { opacity: 0.5; cursor: default; filter: grayscale(0.2); }
 .btn:disabled:hover { transform: none; }
 
@@ -437,6 +442,9 @@ button:disabled {
   gap: 10px;
   flex-wrap: wrap;
 }
+.admin-card .card-actions {
+  justify-content: flex-start;
+}
 .pending-card .card-detail {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding-top: 14px;
@@ -463,6 +471,7 @@ button:disabled {
 }
 
 .user-dashboard { display: flex; flex-direction: column; gap: 28px; }
+.admin-dashboard { display: flex; flex-direction: column; gap: 28px; }
 .section-header {
   display: flex;
   align-items: center;
@@ -474,7 +483,7 @@ button:disabled {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 12px;
-   padding: 8px 14px;
+  padding: 8px 14px;
   color: var(--text);
   font-weight: 600;
 }
