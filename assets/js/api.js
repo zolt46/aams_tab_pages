@@ -7,20 +7,17 @@ function apiBase() {
 }
 
 async function _get(url) {
-  const r = await fetch(url, { credentials: "include" });
+  const r = await fetch(url); // ⬅️ 옵션 객체 전체 또는 credentials 라인 삭제
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
   return r.json();
 }
 async function _post(url, body) {
   const r = await fetch(url, {
     method: "POST",
-    credentials: "include",
+    // ⬅️ credentials 라인 삭제
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {})
   });
-  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
-  try { return await r.json(); } catch { return { ok: true }; }
-}
 
 /** =========================
  * 인원(personnel)
