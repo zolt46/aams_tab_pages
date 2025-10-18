@@ -53,12 +53,15 @@ import { logout } from "./auth.js";
   if (!html) { // 기본 구조 사용
     top.innerHTML = `
       <header class="m-header">
-        <button class="m-btn" id="m-back" aria-label="뒤로">←</button>
+        <div class="m-nav">
+          <button class="m-btn icon-btn" id="m-back" aria-label="뒤로">←</button>
+          <button class="m-btn icon-btn" id="m-home" aria-label="홈" style="display: none;">⌂</button>
+        </div>
         <div class="m-title" id="m-title"></div>
-        <div class="m-spacer"></div>
-        <button class="m-btn" id="m-refresh" aria-label="새로고침">🔄</button>
-        <button class="m-btn" id="m-logout" aria-label="로그아웃">🚪</button>
-        <button class="m-btn" id="m-home" aria-label="홈" style="display: none;">⌂</button>
+        <div class="app-actions">
+          <button class="m-btn icon-btn" id="m-refresh" aria-label="새로고침">🔄</button>
+          <button class="m-btn solid-btn" id="m-logout" aria-label="로그아웃">🚪</button>
+        </div>
       </header>`;
   } else {
     top.innerHTML = html;
@@ -74,8 +77,10 @@ import { logout } from "./auth.js";
       el.id = id;
       el.className = "m-btn";
       el.textContent = label;
-      // 버튼 모음 영역이 있으면 거기에, 없으면 header 끝에
-      (header.querySelector(".app-actions") || header).appendChild(el);
+      const targetGroup = (id === "m-back" || id === "m-home")
+        ? (header.querySelector(".m-nav") || header)
+        : (header.querySelector(".app-actions") || header);
+      targetGroup.appendChild(el);
     }
     if (id === "m-back" || id === "m-refresh" || id === "m-home") {
       el.classList.add("icon-btn");

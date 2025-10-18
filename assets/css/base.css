@@ -182,6 +182,11 @@ button { cursor: pointer; font-family: inherit; }
   z-index: 100;
   height: var(--header-height); /* 고정 높이 */
 }
+.m-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .m-title {
   font-weight: 700;
   font-size: 1.2em;
@@ -192,7 +197,7 @@ button { cursor: pointer; font-family: inherit; }
   transform: translateX(-50%);
   white-space: nowrap;
 }
-.m-spacer { flex-grow: 1; } /* 버튼 오른쪽 정렬용 */
+
 .app-actions { display: flex; align-items: center; gap: 12px; }
 .m-btn {
   background: var(--header-btn-bg);
