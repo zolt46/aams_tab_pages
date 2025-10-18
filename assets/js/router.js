@@ -9,12 +9,11 @@ import { assertApiBaseHealthy } from "./util.js";
 // 라우트별: 1) 주입할 파일 후보, 2) 주입 후 실행할 init 함수
 const routes = {
   // "#/": { candidates:["./pages/index.html","./index_body.html"], init: Auth.initMain }, // ❌ 수정 전
-  "#/":            { candidates:["./index_body.html"],  init: Auth.initMain },
-  "#/admin-login": { candidates:["./admin_login.html"], init: Auth.initAdminLogin },
-  "#/fp-user":     { candidates:["./fp_user.html"],     init: FP.initFpUser },
-  "#/fp-admin":    { candidates:["./fp_admin.html"],    init: FP.initFpAdmin },
-  "#/user":        { candidates:["./user_main.html"],   init: UserPage.initUserMain },
-  "#/admin":       { candidates:["./admin_main.html"],  init: AdminPage.initAdminMain },
+  "#/admin-login": { candidates:["./pages/admin_login.html"], init: Auth.initAdminLogin },
+  "#/fp-user":     { candidates:["./pages/fp_user.html"],     init: FP.initFpUser },
+  "#/fp-admin":    { candidates:["./pages/fp_admin.html"],    init: FP.initFpAdmin },
+  "#/user":        { candidates:["./pages/user_main.html"],   init: UserPage.initUserMain },
+  "#/admin":       { candidates:["./pages/admin_main.html"],  init: AdminPage.initAdminMain },
 };
 
 async function loadFirst(paths){
