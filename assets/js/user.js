@@ -2,11 +2,18 @@
 import { fetchMyPendingApprovals as fetchUserPending, executeRequest } from "./api.js";
 import { getMe, renderMeBrief, mountMobileHeader } from "./util.js";
 
+const numberFormatter = new Intl.NumberFormat("ko-KR");
+
 export async function initUserMain() {
   await mountMobileHeader({ title: "사용자", pageType: "main", showLogout: true });
 
   const me = getMe();
   renderMeBrief(me);
+  const greetingEl = document.getElementById("user-hub-greeting");
+  if (greetingEl) {
+    greetingEl.innerHTML = renderHeroGreeting(me);
+  }
+
 
   const list = document.getElementById("pending-list");
   const toggleBtn = document.getElementById("pending-toggle");
@@ -61,86 +68,87 @@ export async function initUserMain() {
     list.innerHTML = rows.map(renderCard).join("");
     wire();
   } catch (e) {
-     list.innerHTML = `<div class="error">불러오기 실패: ${e.message}</div>`;
+    const message = escapeHtml(e?.message || "오류가 발생했습니다.");
+    list.innerHTML = `<div class="error">불러오기 실패: ${message}</div>`;
     updateDashboardStats({ pendingCount: "-", latest: "-" });
     if (toggleBtn) toggleBtn.disabled = false;
   }
 }
 
 function renderCard(r) {
-  const escape = (value) => String(value ?? "-")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-
-  const idLabel = `REQ-${String(r.id).padStart(4, "0")}`;
+  const requestId = r?.id ?? r?.raw?.id ?? "";
+  const idValue = String(requestId ?? "");
+  const idLabel = idValue ? `REQ-${idValue.padStart(4, "0")}` : "REQ----";
   const typeText = r.type === "ISSUE" ? "불출" : (r.type === "RETURN" ? "불입" : (r.type || "요청"));
   const when = formatKST(r.created_at) || "-";
-  const statusText = escape(r.status ?? "대기");
-  const statusClass = `status-${(r.status || "pending").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const statusLabel = r.status ?? "대기";
+  const statusClass = `status-${sanitizeToken(r.status || "pending")}`;
+  const ammoSummary = formatAmmoSummary(r);
+  const requester = r.requester_name ?? r.raw?.requester_name ?? r.raw?.requester?.name ?? "-";
+  const weaponCode = r.weapon_code ?? r.weapon?.code ?? r.raw?.weapon_code ?? r.raw?.weapon?.code ?? "-";
+
   return `
-    <article class="card pending-card" data-id="${escape(r.id)}">
+    <article class="card pending-card" data-id="${escapeHtml(requestId)}">
       <header class="card-header">
         <div class="card-title">
-          <span class="chip">${escape(idLabel)}</span>
-          <span class="chip">${escape(typeText)}</span>
+          <span class="chip">${escapeHtml(idLabel)}</span>
+          <span class="chip">${escapeHtml(typeText)}</span>
         </div>
-        <span class="badge ${statusClass}">${statusText}</span>
+        <span class="badge ${statusClass}">${escapeHtml(statusLabel)}</span>
       </header>
       <div class="card-summary">
         <div class="summary-item">
           <span class="label">총기</span>
-          <span class="value">${escape(r.weapon_code ?? r.weapon?.code ?? "-")}</span>
+          <span class="value">${escapeHtml(weaponCode || "-")}</span>
         </div>
         <div class="summary-item">
           <span class="label">탄약</span>
-          <span class="value">${escape(r.ammo_summary ?? "-")}</span>
+          <span class="value">${escapeHtml(ammoSummary)}</span>
         </div>
         <div class="summary-item">
           <span class="label">신청자</span>
-          <span class="value">${escape(r.requester_name ?? "-")}</span>
+          <span class="value">${escapeHtml(requester || "-")}</span>
         </div>
         <div class="summary-item">
           <span class="label">요청 시간</span>
-          <span class="value">${escape(when)}</span>
+          <span class="value">${escapeHtml(when)}</span>
         </div>
       </div>
       <footer class="card-actions">
-        <button class="btn primary" data-act="execute" data-id="${escape(r.id)}">
+        <button class="btn primary" data-act="execute" data-id="${escapeHtml(requestId)}">
           <span class="btn-label">집행</span>
         </button>
-        <button class="btn ghost detail-btn" data-act="detail" data-id="${escape(r.id)}" aria-expanded="false">
+        <button class="btn ghost detail-btn" data-act="detail" data-id="${escapeHtml(requestId)}" aria-expanded="false">
           <span class="btn-label">상세 보기</span>
           <span class="chevron">⌄</span>
         </button>
       </footer>
-      <div class="card-detail hidden" data-id="${escape(r.id)}">
+      <div class="card-detail hidden" data-id="${escapeHtml(requestId)}">
         <div class="detail-grid">
           <div>
             <span class="term">요청 유형</span>
-            <span class="desc">${escape(typeText)}</span>
+            <span class="desc">${escapeHtml(typeText)}</span>
           </div>
           <div>
             <span class="term">상태</span>
-            <span class="desc">${statusText}</span>
+            <span class="desc">${escapeHtml(statusLabel)}</span>
           </div>
           <div>
             <span class="term">신청자</span>
-            <span class="desc">${escape(r.requester_name ?? "-")}</span>
+            <span class="desc">${escapeHtml(requester || "-")}</span>
           </div>
           <div>
             <span class="term">요청 시간</span>
-            <span class="desc">${escape(when)}</span>
+            <span class="desc">${escapeHtml(when)}</span>
           </div>
           <div>
             <span class="term">총기</span>
-            <span class="desc">${escape(r.weapon_code ?? r.weapon?.code ?? "-")}</span>
+            <span class="desc">${escapeHtml(weaponCode || "-")}</span>
           </div>
           <div>
             <span class="term">탄약</span>
-            <span class="desc">${escape(r.ammo_summary ?? "-")}</span>
+            <span class="desc">${escapeHtml(ammoSummary)}</span>
+            ${renderAmmoList(r)}
           </div>
         </div>
       </div>
@@ -198,8 +206,90 @@ function wire() {
 
 function updateDashboardStats({ pendingCount = "-", latest = "-" } = {}) {
   const pendingEl = document.getElementById("pending-count");
-  if (pendingEl) pendingEl.textContent = pendingCount;
+  if (pendingEl) pendingEl.textContent = formatCount(pendingCount);
 
   const latestEl = document.getElementById("latest-request");
-  if (latestEl) latestEl.textContent = latest;
+  if (latestEl) latestEl.textContent = latest && latest !== "-" ? latest : "-";
+}
+
+function formatCount(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  if (value === "-") return "-";
+  const num = Number(value);
+  if (Number.isFinite(num)) {
+    return numberFormatter.format(num);
+  }
+  return String(value);
+}
+
+function renderHeroGreeting(me = {}) {
+  if (!me?.id) {
+    return "사용자 인증을 완료하면 승인된 집행 현황을 확인할 수 있습니다.";
+  }
+  const nameParts = [];
+  if (me.rank) nameParts.push(escapeHtml(me.rank));
+  nameParts.push(escapeHtml(me.name || "사용자"));
+  const name = nameParts.join(" ");
+  const unit = me.unit || me.unit_name;
+  const lines = [`<strong>${name}</strong>님, 환영합니다.`];
+  if (unit) {
+    lines.push(`${escapeHtml(unit)} 소속으로 확인되었습니다.`);
+  }
+  return lines.join(" ");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function sanitizeToken(value) {
+  return (String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-") || "pending");
+}
+
+function formatAmmoSummary(row) {
+  if (!row) return "-";
+  const items = getAmmoItems(row);
+  if (items.length) {
+    return items.map(formatAmmoLabel).join(", ") || "-";
+  }
+  if (row.ammo_summary) return row.ammo_summary;
+  if (row.raw?.ammo_summary) return row.raw.ammo_summary;
+  if (typeof row.ammo === "string") return row.ammo;
+  if (typeof row.raw?.ammo === "string") return row.raw.ammo;
+  return "-";
+}
+
+function renderAmmoList(row) {
+  const items = getAmmoItems(row);
+  if (!items.length) return "";
+  const list = items.map((item) => `<li>${escapeHtml(formatAmmoLabel(item))}</li>`).join("");
+  return `<ul class="ammo-list">${list}</ul>`;
+}
+
+function getAmmoItems(row) {
+  if (!row) return [];
+  if (Array.isArray(row.raw?.ammo_items) && row.raw.ammo_items.length) {
+    return row.raw.ammo_items;
+  }
+  if (Array.isArray(row.ammo_items) && row.ammo_items.length) {
+    return row.ammo_items;
+  }
+  return [];
+}
+
+function formatAmmoLabel(item = {}) {
+  const name = item.caliber || item.type || item.name || item.code || item.label || "탄약";
+  const qty = item.qty ?? item.quantity ?? item.count;
+  const unit = item.unit || item.unit_label || item.measure || "";
+  const parts = [name];
+  if (qty !== undefined && qty !== null && qty !== "") {
+    parts.push(`×${qty}`);
+  }
+  if (unit) parts.push(unit);
+  return parts.join(" ").replace(/\s+/g, " ").trim();
 }

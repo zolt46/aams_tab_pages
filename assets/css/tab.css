@@ -231,6 +231,33 @@
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
 }
 
+.auth-list .item .item-line {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+.auth-list .item .item-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+}
+.auth-list .tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  background: rgba(59, 130, 246, 0.18);
+  color: #bfdbfe;
+}
+.auth-list .tag-admin {
+  background: rgba(59, 130, 246, 0.24);
+  color: #dbeafe;
+}
+
 .auth-list .item:hover {
   background: rgba(66, 92, 72, 0.9);
 }

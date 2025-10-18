@@ -1,10 +1,28 @@
 <div id="top"></div>
-<main class="panel user-dashboard">
-  <section class="user-overview">
-    <div class="section-header">
-      <h2 class="section-title">사용자 요약</h2>
-    </div>
+<main class="panel user-hub" id="user-main">
+  <section class="user-hub-hero">
+    <h1 class="hub-title">사용자 센터</h1>
+    <p class="hub-subtitle">승인된 집행을 확인하고 안전하게 실행하세요.</p>
+    <p id="user-hub-greeting" class="hub-greeting" aria-live="polite"></p>
     <div id="me-brief" class="brief enhanced"></div>
+  </section>
+
+  <section class="user-hub-stats" aria-label="집행 요약 지표">
+    <div class="section-header">
+      <h2 class="section-title">요약 지표</h2>
+    </div>
+    <div class="metric-grid">
+      <article class="metric-card">
+        <span class="metric-label"><span class="icon">⏳</span>집행 대기</span>
+        <span class="metric-value" id="pending-count">-</span>
+        <span class="metric-sub">승인을 완료하고 집행을 기다리는 건수</span>
+      </article>
+      <article class="metric-card">
+        <span class="metric-label"><span class="icon">🕒</span>최근 승인</span>
+        <span class="metric-value" id="latest-request">-</span>
+        <span class="metric-sub">가장 최근 승인 완료 시간</span>
+      </article>
+    </div>
   </section>
 
   <section class="pending-section">

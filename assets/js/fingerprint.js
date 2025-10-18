@@ -8,22 +8,41 @@ export async function initFpUser() {
   const box = document.getElementById("user-list");
   box.innerHTML = `<div class="muted">불러오는 중…</div>`;
   try {
-    const rows = await listUsers({ role: "user" });
+    const rows = await listUsers();
     if (!rows?.length) box.innerHTML = `<div class="muted">사용자가 없습니다.</div>`;
     else {
+      const sorted = rows.slice().sort((a, b) => {
+        if (!!a.is_admin === !!b.is_admin) {
+          return String(a.name || "").localeCompare(String(b.name || ""), "ko", { sensitivity: "base" });
+        }
+        return a.is_admin ? 1 : -1;
+      });
       const attr = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
       const escape = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      box.innerHTML = rows.map(r => `
-        <button class="item" data-id="${attr(r.id)}"
+      box.innerHTML = sorted.map(r => {
+        const adminTag = r.is_admin ? '<span class="tag tag-admin">관리자</span>' : '';
+        const unit = r.unit || r.unit_name || "";
+        const name = escape(r.name || "사용자");
+        const rank = r.rank ? ` <span class="muted">(${escape(r.rank)})</span>` : "";
+        const unitLine = unit ? escape(unit) : "";
+        const unitDisplay = unitLine || "-";
+        return `
+        <button class="item" data-id="${attr(r.id)}" data-admin="${r.is_admin ? "1" : "0"}"
                 data-name="${attr(r.name)}" data-rank="${attr(r.rank)}"
-                data-unit="${attr(r.unit)}" data-serial="${attr(r.military_id)}"
-                data-position="${attr(r.position)}" data-contact="${attr(r.contact)}">
-          ${escape(r.name||"사용자")} ${r.rank?`(${escape(r.rank)})`:""} · ${escape(r.unit)}
-        </button>
-      `).join("");
+                data-unit="${attr(unit)}" data-serial="${attr(r.military_id)}"
+                data-position="${attr(r.position)}" data-contact="${attr(r.contact)}"
+                data-userid="${attr(r.user_id)}">
+          <span class="item-line">${name}${rank}</span>
+          <span class="item-sub">${unitDisplay}${adminTag ? ` ${adminTag}` : ""}</span>
+        </button>`;
+      }).join("");
     }
   } catch (e) {
-    box.innerHTML = `<div class="error">불러오기 실패: ${e.message}</div>`;
+    const msg = String(e?.message || "오류가 발생했습니다.")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    box.innerHTML = `<div class="error">불러오기 실패: ${msg}</div>`;
   }
 
   box.addEventListener("click", (ev)=>{
@@ -37,7 +56,8 @@ export async function initFpUser() {
       position: b.getAttribute("data-position"),
       duty: b.getAttribute("data-position"),
       contact: b.getAttribute("data-contact"),
-      is_admin: false
+      user_id: b.getAttribute("data-userid"),
+      is_admin: b.getAttribute("data-admin") === "1"
     };
     localStorage.setItem("AAMS_ME", JSON.stringify(me));
     location.hash = "#/user";

@@ -55,8 +55,10 @@ export async function verifyAdminCredential(user_id, password) {
 export async function fetchMyPendingApprovals(userId) {
   // server.js: GET /api/requests/for_user/:uid
   const all = await _get(`${apiBase()}/api/requests/for_user/${encodeURIComponent(userId)}`);
-  // 집행 대기건: APPROVED
-  return (all || []).filter(r => r.status === "APPROVED");
+  // 집행 대기건: APPROVED → 사용자 카드 렌더링과 동일한 포맷으로 변환
+  return (all || [])
+    .filter(r => r.status === "APPROVED")
+    .map(toRequestRow);
 }
 export { fetchMyPendingApprovals as fetchUserPending };
 
