@@ -77,6 +77,12 @@ import { logout } from "./auth.js";
       // 버튼 모음 영역이 있으면 거기에, 없으면 header 끝에
       (header.querySelector(".app-actions") || header).appendChild(el);
     }
+    if (id === "m-back" || id === "m-refresh" || id === "m-home") {
+      el.classList.add("icon-btn");
+    }
+    if (id === "m-logout") {
+      el.classList.add("solid-btn");
+    }
     return el;
   };
   const titleEl   = header.querySelector("#m-title") || header.querySelector(".m-title");
@@ -146,13 +152,66 @@ export function getMe() {
   try { return JSON.parse(localStorage.getItem("AAMS_ME") || "null") || {}; }
   catch { return {}; }
 }
-export function renderMeBrief(me) {
-  const box = document.getElementById("me-brief"); if (!box) return;
-  if (!me?.id) { box.innerHTML = `<div class="muted">로그인되지 않음</div>`; return; }
-  box.innerHTML =
-    `<div><b>${me.name||"사용자"}</b> ${me.rank?`(${me.rank})`:""}</div>` +
-    `<div>군번: ${me.serial||"-"}</div>` +
-    `<div>소속: ${me.unit||"-"}</div>`;
+export function renderMeBrief(me = {}) {
+  const box = document.getElementById("me-brief");
+  if (!box) return;
+
+  const escape = (value) => String(value ?? "-")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+  if (!me?.id) {
+    box.innerHTML = `<div class="muted">로그인되지 않음</div>`;
+    return;
+  }
+
+  const displayName = `${me.rank ? `${escape(me.rank)} ` : ""}${escape(me.name || "사용자")}`.trim();
+  const unit = escape(me.unit || "-");
+  const serial = escape(me.serial || me.military_id || "-");
+  const weapon = escape(me.weapon_name || me.weapon_code || me.weapon || "-");
+  const duty = escape(me.duty || me.role_label || me.role || "-");
+  const contact = escape(me.phone || me.contact || "-");
+
+  box.innerHTML = `
+    <div class="overview">
+      <div class="overview-icon" aria-hidden="true">🛡️</div>
+      <div class="overview-text">
+        <h3>${displayName}</h3>
+        <p>${unit}</p>
+      </div>
+    </div>
+    <div class="overview-meta" role="list">
+      <div role="listitem">
+        <span class="lbl">군번</span>
+        <span class="val">${serial}</span>
+      </div>
+      <div role="listitem">
+        <span class="lbl">주요 장비</span>
+        <span class="val">${weapon}</span>
+      </div>
+      <div role="listitem">
+        <span class="lbl">담당 임무</span>
+        <span class="val">${duty}</span>
+      </div>
+      <div role="listitem">
+        <span class="lbl">연락처</span>
+        <span class="val">${contact}</span>
+      </div>
+    </div>
+    <div class="overview-stats">
+      <div class="stat-card">
+        <span class="label">집행 대기</span>
+        <span class="value" id="pending-count">-</span>
+      </div>
+      <div class="stat-card">
+        <span class="label">최근 요청</span>
+        <span class="value" id="latest-request">-</span>
+      </div>
+    </div>
+  `;
 }
 
 // === (선택) API BASE 간단 헬스체크 배너 ===

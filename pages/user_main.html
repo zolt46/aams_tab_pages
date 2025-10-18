@@ -1,16 +1,22 @@
 <div id="top"></div>
-<main class="panel p24 gap12">
-<h2>집행 대기</h2>
-<div id="pending-list" class="list"></div>
-<h3>내 정보</h3>
-<div id="me-brief" class="brief"></div>
+<main class="panel user-dashboard">
+  <section class="user-overview">
+    <div class="section-header">
+      <h2 class="section-title">사용자 요약</h2>
+    </div>
+    <div id="me-brief" class="brief enhanced"></div>
+  </section>
+
+  <section class="pending-section">
+    <div class="section-header">
+      <h2 class="section-title">집행 대기</h2>
+      <button type="button" id="pending-toggle" class="section-toggle" aria-expanded="true" aria-controls="pending-list">접기</button>
+    </div>
+    <div id="pending-list" class="list pending-list" role="region" aria-live="polite"></div>
+  </section>
 </main>
 <script type="module">
-import { mountMobileHeader, getMe, renderMeBrief } from "../assets/js/util.js"; // 경로 수정
-import { initUserMain } from "../assets/js/user.js"; // 경로 수정
+import { initUserMain } from "../assets/js/user.js";
 
-// pageType을 'main'으로 지정 (뒤로가기 자동 숨김)
-await mountMobileHeader({ title: "사용자", pageType: 'main' });
-renderMeBrief(getMe());
 initUserMain();
 </script>
