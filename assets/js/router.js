@@ -16,6 +16,28 @@ const routes = {
   "#/admin":       { candidates:["./pages/admin_main.html"],  init: AdminPage.initAdminMain },
 };
 
+const DEFAULT_ROUTE = "#/";
+
+function resolveRoute(rawHash){
+  const requested = rawHash?.trim() || DEFAULT_ROUTE;
+
+  if (routes[requested]){
+    return { key: requested, config: routes[requested] };
+  }
+
+  if (requested !== DEFAULT_ROUTE){
+    console.warn(`[AAMS] 알 수 없는 라우트(${requested}) -> ${DEFAULT_ROUTE}로 대체합니다.`);
+    // 알 수 없는 라우트로 진입 시 URL도 홈으로 교체해두면 새로고침/공유 시 안전
+    try { location.hash = DEFAULT_ROUTE; } catch {}
+  }
+
+  const fallback = routes[DEFAULT_ROUTE];
+  if (!fallback){
+    return { key: requested, config: null };
+  }
+  return { key: DEFAULT_ROUTE, config: fallback };
+}
+
 async function loadFirst(paths){
   let lastErr;
   for (const p of paths){
@@ -39,26 +61,21 @@ function showError(msg){
 
 export async function mountRoute(){
   const app = document.getElementById("app");
-  const path = location.hash || "#/";
-  
-  let route = routes[path];
-  if (!route){
-    console.warn(`[AAMS] 알 수 없는 라우트(${path}) -> #/로 대체합니다.`);
-    route = routes["#/"];
-  }
+  const { key, config } = resolveRoute(location.hash);
 
-  if (!route){
-    showError(`라우트: ${path}\n오류: 지원되지 않는 라우트입니다.`);
+  if (!config){
+    const known = Object.keys(routes).join(", ");
+    showError(`라우트: ${key}\n오류: 지원되지 않는 라우트입니다.\n정의된 라우트: ${known || "(없음)"}`);
     return;
   }
 
   try{
-    const html = await loadFirst(route.candidates ?? []);
+    const html = await loadFirst(config.candidates ?? []);
     app.innerHTML = html;            // 1) 조각 주입
-    await route.init?.();            // 2) 조각용 초기화 실행 (여기가 ⬅ 핵심!)
+    await config.init?.();           // 2) 조각용 초기화 실행 (여기가 ⬅ 핵심!)
   }catch(e){
-    const tried = route.candidates?.join(" | ") ?? "(없음)";
-    showError(`라우트: ${path}\n시도: ${tried}\n오류: ${e.message}`);
+    const tried = config.candidates?.join(" | ") ?? "(없음)";
+    showError(`라우트: ${key}\n시도: ${tried}\n오류: ${e.message}`);
   }
 }
 
