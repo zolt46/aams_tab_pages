@@ -5,20 +5,22 @@ export async function initMain() {
   const btn  = document.getElementById("btn-login");
   if (logo) {
     let tapCount = 0;
-    let resetTimer = null;
+    let lastTapAt = 0;
+
     logo.addEventListener("click", () => {
+            const now = Date.now();
+      if (now - lastTapAt > 3000) {
+        tapCount = 0;
+      }
+
+      lastTapAt = now;
       tapCount += 1;
-      if (resetTimer) clearTimeout(resetTimer);
 
       if (tapCount >= 5) {
         tapCount = 0;
+        lastTapAt = 0;
         location.hash = "#/admin-login";
-        return;
       }
-
-      resetTimer = setTimeout(() => {
-        tapCount = 0;
-      }, 1500);
     });
   }
   btn?.addEventListener("click", ()=>{ location.hash = "#/fp-user"; });
