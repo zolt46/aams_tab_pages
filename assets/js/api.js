@@ -1,59 +1,87 @@
-import { getApiBase } from './util.js';
+// assets/js/api.js
+import { getApiBase } from "./util.js";
 
-
-async function _get(url){
-const res = await fetch(url, { credentials: 'include' });
-if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-return res.json();
-}
-async function _post(url, body){
-const res = await fetch(url, { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{}) });
-if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-return res.json().catch(()=>({ ok:true }));
+function apiBase() {
+  // same-origin 기본값 (로컬에서 index.html을 같은 서버로 서빙하면 빈 문자열로도 동작)
+  return getApiBase() || "";
 }
 
-
-export async function fetchMyPendingApprovals(userId){
-const API_BASE = getApiBase();
-const candidates = [
-`${API_BASE}/api/approvals?assignee=${encodeURIComponent(userId)}&status=APPROVED`,
-`${API_BASE}/api/requests?owner=${encodeURIComponent(userId)}&status=READY_TO_EXECUTE`,
-];
-for (const url of candidates) {
-try { return await _get(url); } catch {}
+async function _get(url) {
+  const r = await fetch(url, { credentials: "include" });
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+  return r.json();
 }
-return [];
-}
-
-
-export async function executeRequest({ requestId, executorId }){
-const API_BASE = getApiBase();
-const payload = { request_id: requestId, executor_id: executorId };
-const candidates = [
-`${API_BASE}/api/requests/${requestId}/execute`,
-`${API_BASE}/api/approvals/${requestId}/execute`,
-`${API_BASE}/api/execute`
-];
-let lastErr;
-for (const url of candidates) {
-try { return await _post(url, payload); } catch(e){ lastErr = e; }
-}
-throw lastErr ?? new Error('No execution endpoint worked');
+async function _post(url, body) {
+  const r = await fetch(url, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {})
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+  try { return await r.json(); } catch { return { ok: true }; }
 }
 
-
-export async function adminAction({ requestId, action, actorId, reason }){
-const API_BASE = getApiBase();
-const path = action.toLowerCase();
-const payload = { request_id: requestId, actor_id: actorId, reason };
-const candidates = [
-`${API_BASE}/api/requests/${requestId}/${path}`,
-`${API_BASE}/api/approvals/${requestId}/${path}`,
-`${API_BASE}/api/${path}`,
-];
-let lastErr;
-for (const url of candidates) {
-try { return await _post(url, payload); } catch(e){ lastErr = e; }
+/** =========================
+ * 인원(personnel)
+ * ========================= */
+export async function listUsers({ role } = {}) {
+  // server.js: GET /api/personnel (is_admin 포함)
+  const rows = await _get(`${apiBase()}/api/personnel`);
+  if (!role) return rows;
+  if (role === "admin") return rows.filter(r => !!r.is_admin);
+  if (role === "user")  return rows.filter(r => !r.is_admin);
+  return rows;
 }
-throw lastErr ?? new Error(`Admin action failed: ${action}`);
+
+/** =========================
+ * 로그인 (관리자만 통과)
+ * ========================= */
+export async function verifyAdminCredential(user_id, password) {
+  // server.js: POST /api/login { user_id, password }  (임시: 평문비교)
+  const res = await _post(`${apiBase()}/api/login`, { user_id, password });
+  // 관리자만 허용
+  return !!res?.is_admin;
+}
+
+/** =========================
+ * 요청/집행 (사용자 측)
+ * ========================= */
+
+// “나와 관련된 요청”을 서버에서 가져온 뒤, 집행 대기(= APPROVED)만 추려서 보여줌
+export async function fetchMyPendingApprovals(userId) {
+  // server.js: GET /api/requests/for_user/:uid
+  const all = await _get(`${apiBase()}/api/requests/for_user/${encodeURIComponent(userId)}`);
+  // 집행 대기건: APPROVED
+  return (all || []).filter(r => r.status === "APPROVED");
+}
+
+// 집행
+export async function executeRequest({ requestId, executorId }) {
+  // server.js: POST /api/requests/:id/execute  { executed_by }
+  return _post(`${apiBase()}/api/requests/${encodeURIComponent(requestId)}/execute`, {
+    executed_by: executorId
+  });
+}
+
+/** =========================
+ * 관리자 승인/거부/재오픈
+ * ========================= */
+export async function adminAction({ requestId, action, actorId, reason }) {
+  const id = encodeURIComponent(requestId);
+  const base = `${apiBase()}/api/requests/${id}`;
+
+  if (action === "approve") {
+    // server.js: POST /api/requests/:id/approve { approver_id }
+    return _post(`${base}/approve`, { approver_id: actorId });
+  }
+  if (action === "reject") {
+    // server.js: POST /api/requests/:id/reject { approver_id, reason }
+    return _post(`${base}/reject`, { approver_id: actorId, reason: reason || "" });
+  }
+  if (action === "reopen") {
+    // server.js: POST /api/requests/:id/reopen { actor_id }
+    return _post(`${base}/reopen`, { actor_id: actorId });
+  }
+  throw new Error(`unknown admin action: ${action}`);
 }

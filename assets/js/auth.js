@@ -1,48 +1,32 @@
-// ./assets/js/auth.js
-import { verifyFingerprint } from "./fingerprint.js";
-
-const ADMIN_TAP_COUNT = 5;
-let logoTap = 0;
-let logoTimer;
-
-export async function wireIndexInteractions(){
-  // 관리자 로그인 모달 주입 (상대경로 중요!)
-  const slot = document.getElementById("modal-slot");
-  if (slot) {
-    try {
-      const html = await fetch("./components/admin_login_modal.html").then(r=>r.text());
-      slot.innerHTML = html;
-      wireAdminModal();
-    } catch {}
-  }
-
+// assets/js/auth.js
+// 메인 화면 초기화 (상단바 없음)
+export async function initMain() {
   const logo = document.getElementById("logo");
+  const btn  = document.getElementById("btn-login");
+  let tap = 0, timer;
   logo?.addEventListener("click", ()=>{
-    clearTimeout(logoTimer);
-    logoTap++;
-    logoTimer = setTimeout(()=> (logoTap=0), 1200);
-    if (logoTap >= ADMIN_TAP_COUNT) {
-      document.getElementById("admin-login-modal")?.classList.remove("hidden");
-      logoTap = 0;
-    }
+    clearTimeout(timer); tap++; timer = setTimeout(()=> tap=0, 1200);
+    if (tap >= 5) { location.hash = "#/admin-login"; tap = 0; }
   });
-
-  document.getElementById("btn-login")?.addEventListener("click", async ()=>{
-    const ok = await verifyFingerprint();
-    if (ok) location.hash = "#/user";
-    else alert("지문 인증 실패");
-  });
+  btn?.addEventListener("click", ()=>{ location.hash = "#/fp-user"; });
 }
 
-function wireAdminModal(){
-  document.getElementById("btn-admin-cancel")?.addEventListener("click", ()=>{
-    document.getElementById("admin-login-modal")?.classList.add("hidden");
-  });
-  document.getElementById("btn-admin-login")?.addEventListener("click", ()=>{
+// 관리자 로그인 페이지 초기화
+import { mountMobileHeader } from "./util.js";
+import { verifyAdminCredential } from "./api.js";
+
+export async function initAdminLogin() {
+  await mountMobileHeader({ title: "관리자 로그인", backTo: "#/" });
+  document.getElementById("btn-admin-next")?.addEventListener("click", async ()=>{
     const id = document.getElementById("admin-id")?.value?.trim();
     const pw = document.getElementById("admin-pw")?.value?.trim();
-    if (!id || !pw) return alert("계정/비밀번호 입력");
-    document.getElementById("admin-login-modal")?.classList.add("hidden");
-    location.hash = "#/admin";
+    if (!id || !pw) return alert("ID/비밀번호를 입력하세요.");
+    try {
+      const ok = await verifyAdminCredential(id, pw);
+      if (!ok) return alert("관리자 인증 실패");
+      // 직전 로그인한 관리자 user_id 저장 → fp_admin에서 동일 아이디만 노출
+      sessionStorage.setItem("AAMS_ADMIN_LOGIN_ID", id);
+      location.hash = "#/fp-admin";
+    } catch (e) { alert("로그인 오류: " + e.message); }
   });
 }

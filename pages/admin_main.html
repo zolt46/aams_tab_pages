@@ -1,20 +1,16 @@
-<div data-part="page">
 <div id="top"></div>
-<main class="container">
-<section class="row gap">
-<button id="btn-fp-mgmt" class="secondary">지문 관리</button>
+<main class="panel p24 gap12">
+<h2>관리</h2>
+<section class="row gap12">
 <button id="btn-approvals" class="secondary">승인/거부/재오픈</button>
 </section>
-
-
-<section id="admin-area" class="stack gap">
+<section id="admin-area" class="stack gap12">
 <div class="muted">메뉴를 선택하세요.</div>
 </section>
 </main>
-</div>
 <script type="module">
-import { mountHeader } from "/assets/js/util.js";
-import { initAdminMain } from "/assets/js/admin.js";
-await mountHeader();
+import { mountMobileHeader } from "./assets/js/util.js";
+import { initAdminMain } from "./assets/js/admin.js";
+await mountMobileHeader({ title: "관리자", backTo: "#/" });
 initAdminMain();
 </script>
