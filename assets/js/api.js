@@ -58,6 +58,7 @@ export async function fetchMyPendingApprovals(userId) {
   // 집행 대기건: APPROVED
   return (all || []).filter(r => r.status === "APPROVED");
 }
+export { fetchMyPendingApprovals as fetchUserPending };
 
 // 집행
 export async function executeRequest({ requestId, executorId }) {
@@ -87,4 +88,41 @@ export async function adminAction({ requestId, action, actorId, reason }) {
     return _post(`${base}/reopen`, { actor_id: actorId });
   }
   throw new Error(`unknown admin action: ${action}`);
+}
+
+
+// =========================
+// 관리자 대기건 목록
+// =========================
+export async function fetchAdminPending({ limit = 30 } = {}) {
+  const base = apiBase();
+  const tries = [
+    `${base}/api/requests?status=SUBMITTED&limit=${limit}`,
+    `${base}/api/requests/pending?limit=${limit}`,
+    `${base}/api/requests?limit=${limit}`
+  ];
+  let data = null, lastErr;
+  for (const url of tries) {
+    try { data = await _get(url); if (data) break; } catch (e) { lastErr = e; }
+  }
+  if (!data) throw lastErr || new Error("대기건 API 응답 없음");
+  const rows = Array.isArray(data) ? data : (data.rows || []);
+  // 상태가 SUBMITTED/PENDING/WAITING/REQUESTED 인 것만 대기건으로 간주
+  const pending = rows.filter(r => ["SUBMITTED","PENDING","WAITING","REQUESTED"].includes(r.status));
+  return pending.map(toRequestRow);
+}
+
+// 사용자/관리자 공통 표준화
+function toRequestRow(r){
+  return {
+    id: r.id,
+    type: r.type,                         // ISSUE | RETURN | ...
+    status: r.status,
+    weapon_code: r.weapon_code || r.weapon?.code,
+    ammo_summary: Array.isArray(r.ammo_items) && r.ammo_items.length
+      ? r.ammo_items.map(it => `${it.caliber || it.type}×${it.qty}`).join(", ")
+      : r.ammo_summary || null,
+    requester_name: r.requester_name || r.requester?.name || r.user?.name,
+    created_at: r.created_at || r.requested_at || r.approved_at || r.updated_at
+  };
 }

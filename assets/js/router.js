@@ -9,12 +9,12 @@ import { assertApiBaseHealthy } from "./util.js";
 // 라우트별: 1) 주입할 파일 후보, 2) 주입 후 실행할 init 함수
 const routes = {
   // "#/": { candidates:["./pages/index.html","./index_body.html"], init: Auth.initMain }, // ❌ 수정 전
-  "#/":            { candidates:["./index_body.html"], init: Auth.initMain }, // ✅ 수정 후
-  "#/admin-login": { candidates:["./pages/admin_login.html"], init: Auth.initAdminLogin }, // "./admin_login.html" 중복 제거
-  "#/fp-user":     { candidates:["./pages/fp_user.html"], init: FP.initFpUser }, // 중복 제거
-  "#/fp-admin":    { candidates:["./pages/fp_admin.html"], init: FP.initFpAdmin }, // 중복 제거
-  "#/user":        { candidates:["./pages/user_main.html"], init: UserPage.initUserMain }, // 중복 제거
-  "#/admin":       { candidates:["./pages/admin_main.html"], init: AdminPage.initAdminMain }, // 중복 제거
+  "#/":            { candidates:["./index_body.html"],  init: Auth.initMain },
+  "#/admin-login": { candidates:["./admin_login.html"], init: Auth.initAdminLogin },
+  "#/fp-user":     { candidates:["./fp_user.html"],     init: FP.initFpUser },
+  "#/fp-admin":    { candidates:["./fp_admin.html"],    init: FP.initFpAdmin },
+  "#/user":        { candidates:["./user_main.html"],   init: UserPage.initUserMain },
+  "#/admin":       { candidates:["./admin_main.html"],  init: AdminPage.initAdminMain },
 };
 
 async function loadFirst(paths){
@@ -26,7 +26,8 @@ async function loadFirst(paths){
       return await r.text();
     }catch(e){ lastErr = e; }
   }
-  throw lastErr ?? new Error("No candidate worked");
+  console.error("[AAMS] loadFirst 실패. 시도 경로:", paths);
+  throw new Error("모든 후보 경로에서 로딩 실패");
 }
 
 function showError(msg){

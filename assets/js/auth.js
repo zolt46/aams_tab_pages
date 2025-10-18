@@ -30,3 +30,12 @@ export async function initAdminLogin() {
     } catch (e) { alert("로그인 오류: " + e.message); }
   });
 }
+
+export function logout() {
+  try {
+    localStorage.removeItem("token");
+    localStorage.removeItem("me"); // 로그인 사용자 캐시 사용 중이면 같이 지움
+  } catch (e) {}
+  location.hash = "#/login";
+  location.reload();
+ }

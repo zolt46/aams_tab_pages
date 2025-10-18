@@ -24,14 +24,24 @@ export function getApiBase() {
  */
 
 // === 상단 모바일 헤더 주입 (서브 페이지용) ===
-export async function mountMobileHeader(
-  { title, pageType = 'subpage', backTo = "#/", homeTo } = {}
-) {
+import { logout } from "./auth.js";
+ export async function mountMobileHeader({
+   title="AAMS",
+   pageType="main",
+   showLogout=true,
+   backTo="#/",
+   homeTo
+ } = {}) {
+
   const top = document.getElementById("top");
   if (!top) return;
 
   // 헤더 HTML 로드 (기존과 유사, 실패 시 기본 구조 사용)
-  const candidates = ["./components/mobile_header.html", "./components/header_mobile.html"];
+  const candidates = [
+    "./components/mobile_header.html",
+    "./components/header_mobile.html",
+    "./mobile_header.html" // 루트 경로도 시도
+  ];
   let html = "";
   try {
     for (const p of candidates) {
@@ -55,11 +65,25 @@ export async function mountMobileHeader(
   }
 
   // 요소 가져오기
-  const titleEl = document.getElementById("m-title");
-  const backBtn = document.getElementById("m-back");
-  const refreshBtn = document.getElementById("m-refresh");
-  const logoutBtn = document.getElementById("m-logout");
-  const homeBtn = document.getElementById("m-home");
+  // 요소 확보(없으면 생성해서 강제 주입)
+  const header = top.querySelector("header") || top;
+  const ensureBtn = (id, label) => {
+    let el = header.querySelector(`#${id}`);
+    if (!el) {
+      el = document.createElement("button");
+      el.id = id;
+      el.className = "m-btn";
+      el.textContent = label;
+      // 버튼 모음 영역이 있으면 거기에, 없으면 header 끝에
+      (header.querySelector(".app-actions") || header).appendChild(el);
+    }
+    return el;
+  };
+  const titleEl   = header.querySelector("#m-title") || header.querySelector(".m-title");
+  const backBtn   = header.querySelector("#m-back")    || ensureBtn("m-back", "←");
+  const refreshBtn= header.querySelector("#m-refresh") || ensureBtn("m-refresh", "🔄");
+  const logoutBtn = header.querySelector("#m-logout")  || (showLogout ? ensureBtn("m-logout","로그아웃") : null);
+  const homeBtn   = header.querySelector("#m-home")    || ensureBtn("m-home", "⌂");
 
   // 제목 설정
   if (titleEl) titleEl.textContent = title || "";
@@ -72,20 +96,20 @@ export async function mountMobileHeader(
     // 로그인/지문 페이지: 뒤로가기, 새로고침만 표시
     show(backBtn);
     show(refreshBtn);
-    hide(logoutBtn);
+    if (logoutBtn) hide(logoutBtn);
     hide(homeBtn);
     if (backBtn) backBtn.addEventListener("click", () => { location.hash = backTo; });
   } else if (pageType === 'main') {
     // 사용자/관리자 메인: 뒤로가기 숨김, 새로고침, 로그아웃 표시 (홈 버튼은 의미 없으므로 숨김)
     hide(backBtn);
     show(refreshBtn);
-    show(logoutBtn);
+    if (showLogout && logoutBtn) show(logoutBtn); else if (logoutBtn) hide(logoutBtn);
     hide(homeBtn);
   } else { // 'subpage' (기본값)
     // 하위 페이지: 뒤로가기, 새로고침, 로그아웃, 홈 모두 표시
     show(backBtn);
     show(refreshBtn);
-    show(logoutBtn);
+    if (showLogout && logoutBtn) show(logoutBtn); else if (logoutBtn) hide(logoutBtn);
     show(homeBtn);
     if (backBtn) backBtn.addEventListener("click", () => { location.hash = backTo; });
   }
@@ -96,12 +120,12 @@ export async function mountMobileHeader(
   }
 
   // 로그아웃 버튼 공통 로직 (로그인 페이지 제외)
-  if (logoutBtn && pageType !== 'login') {
+  if (logoutBtn && pageType !== 'login' && showLogout) {
     logoutBtn.addEventListener("click", () => {
-      localStorage.removeItem("AAMS_ME");
-      sessionStorage.removeItem("AAMS_ADMIN_LOGIN_ID");
+      try { localStorage.removeItem("AAMS_ME"); } catch {}
+      try { sessionStorage.removeItem("AAMS_ADMIN_LOGIN_ID"); } catch {}
       location.hash = "#/";
-      location.reload(); // 상태 완전 초기화를 위해 새로고침 추가
+      location.reload();
     });
   }
 
