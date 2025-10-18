@@ -4,7 +4,7 @@ import { listUsers } from "./api.js";
 
 // 사용자 지문: 사용자 선택 → #/user
 export async function initFpUser() {
-  await mountMobileHeader({ title: "지문 인식", backTo: "#/" });
+  await mountMobileHeader({ title: "지문 인식", backTo: "#/", disableBack: true });
   const box = document.getElementById("user-list");
   box.innerHTML = `<div class="muted">불러오는 중…</div>`;
   try {
@@ -40,7 +40,7 @@ export async function initFpUser() {
 
 // 관리자 지문: 직전 로그인한 관리자 user_id만 노출 → 선택 시 #/admin
 export async function initFpAdmin() {
-  await mountMobileHeader({ title: "관리자 지문 인식", backTo: "#/admin-login" });
+  await mountMobileHeader({ title: "관리자 지문 인식", backTo: "#/admin-login", disableBack: true });
   const loginId = sessionStorage.getItem("AAMS_ADMIN_LOGIN_ID"); // e.g. 'adminA'
   const box = document.getElementById("admin-list");
   box.innerHTML = `<div class="muted">불러오는 중…</div>`;

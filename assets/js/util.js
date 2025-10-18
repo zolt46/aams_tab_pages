@@ -15,7 +15,7 @@ export function getApiBase() {
 }
 
 // === 상단 모바일 헤더 주입 (서브 페이지용) ===
-export async function mountMobileHeader({ title, backTo = "#/", homeTo = "#/" } = {}) {
+export async function mountMobileHeader({ title, backTo = "#/", homeTo = "#/", disableBack = false } = {}) { // disableBack 옵션 추가
   const top = document.getElementById("top");
   if (!top) return;
 
@@ -37,17 +37,43 @@ export async function mountMobileHeader({ title, backTo = "#/", homeTo = "#/" } 
       <header class="m-header">
         <button class="m-btn" id="m-back" aria-label="뒤로">←</button>
         <div class="m-title" id="m-title"></div>
+        <div style="flex-grow: 1;"></div>
+        <button class="m-btn" id="m-refresh" aria-label="새로고침">🔄</button>
+        <button class="m-btn" id="m-logout" aria-label="로그아웃">🚪</button>
         <button class="m-btn" id="m-home" aria-label="홈">⌂</button>
       </header>`;
   } else {
     top.innerHTML = html;
   }
 
-  const t = document.getElementById("m-title"); if (t) t.textContent = title || "";
-  document.getElementById("m-back")?.addEventListener("click", ()=>{ location.hash = backTo; });
-  document.getElementById("m-home")?.addEventListener("click", ()=>{ location.hash = homeTo; });
-}
+  const backBtn = document.getElementById("m-back");
+  if (backBtn) {
+    if (disableBack) { // disableBack 옵션이 true이면 버튼 비활성화
+      backBtn.disabled = true;
+      backBtn.style.opacity = '0.5'; // 시각적으로 비활성화 표시
+      backBtn.style.cursor = 'default';
+    } else {
+      backBtn.addEventListener("click", ()=>{ location.hash = backTo; });
+    }
+  }
 
+  // 홈 버튼 처리 (기존과 동일)
+  document.getElementById("m-home")?.addEventListener("click", ()=>{ location.hash = homeTo; });
+
+  // 새로고침 버튼 처리
+  document.getElementById("m-refresh")?.addEventListener("click", () => {
+    location.reload();
+  });
+
+  // 로그아웃 버튼 처리
+  document.getElementById("m-logout")?.addEventListener("click", () => {
+    // 사용자 정보 삭제 (필요에 따라 sessionStorage 등 다른 저장소도 정리)
+    localStorage.removeItem("AAMS_ME");
+    sessionStorage.removeItem("AAMS_ADMIN_LOGIN_ID"); // 관리자 로그인 ID도 제거
+    // 메인 페이지로 이동
+    location.hash = "#/";
+  });
+}
 // === 내 정보 렌더 ===
 export function getMe() {
   try { return JSON.parse(localStorage.getItem("AAMS_ME") || "null") || {}; }
