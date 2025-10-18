@@ -7,7 +7,7 @@ function apiBase() {
 }
 
 async function _get(url) {
-  const r = await fetch(url); // credentials 옵션 제거
+  const r = await fetch(url); // credentials 옵션 제거됨
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
   return r.json();
 }
@@ -15,14 +15,15 @@ async function _get(url) {
 async function _post(url, body) {
   const r = await fetch(url, {
     method: "POST",
-    // credentials 옵션 제거
+    // credentials 옵션 제거됨
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {})
   });
+  // ▼▼▼ [수정] 이 부분을 복원/확인하세요 ▼▼▼
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
-  // ▼▼▼ [수정] 이 부분이 복원되어야 합니다 ▼▼▼
   try { return await r.json(); } catch { return { ok: true }; }
-}
+} // ⬅️ 함수의 닫는 괄호 '}' 추가
+// ▲▲▲ [수정] _post 함수는 여기까지입니다 ▲▲▲
 
 /** =========================
  * 인원(personnel)

@@ -200,3 +200,88 @@ button { cursor: pointer; font-family: inherit; }
 .m-btn:hover { background: rgba(255, 255, 255, 0.1); } /* 호버 효과 */
 .m-btn:disabled { opacity: 0.3; cursor: default; background: transparent; } /* 비활성화 스타일 */
 .m-btn:disabled:hover { background: transparent; }
+
+/* assets/css/base.css 에 추가 */
+.m-btn svg {
+  display: block; /* inline 요소에서 발생할 수 있는 여백 문제 방지 */
+  width: 24px;   /* 너비 고정 */
+  height: 24px;  /* 높이 고정 */
+  pointer-events: none; /* 아이콘 자체는 클릭 이벤트 받지 않도록 */
+}
+
+/* 새로고침 아이콘 크기 미세 조정 (필요시) */
+#m-refresh svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* 홈 아이콘 크기 미세 조정 (필요시) */
+#m-home svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* 중앙 컨텐츠 영역 개선 */
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+#app {
+  flex-grow: 1; /* 헤더 제외한 나머지 영역 채우도록 */
+  padding: 16px; /* 전체 앱 영역에 여백 */
+  display: flex; /* 내부 패널 중앙 정렬 위해 */
+  justify-content: center; /* 가로 중앙 */
+  align-items: flex-start; /* 세로 상단 */
+}
+
+/* 패널 스타일 추가 조정 */
+.panel {
+  width: 100%; /* 앱 패딩 내에서 꽉 차게 */
+  margin: 0; /* #app 에서 중앙 정렬하므로 margin 제거 */
+  padding: 20px; /* 내부 여백 통일 */
+}
+
+/* 로그인 화면 버튼 간격 및 너비 재조정 */
+.screen-center .primary {
+   /* wfull 제거 후 적절한 너비 또는 기본 너비 사용 */
+   /* 필요시 max-width 추가 */
+   max-width: 320px;
+   width: 100%; /* 화면 작을땐 꽉차게 */
+   margin-top: 16px; /* 로고/텍스트와 간격 */
+}
+
+/* 리스트 아이템 내부 요소 정렬 */
+.item .row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between; /* 기본적으로 양 끝 정렬 */
+  width: 100%; /* 너비 확보 */
+}
+.item b { /* 제목 텍스트 줄바꿈 처리 */
+  white-space: normal;
+  word-break: keep-all; /* 단어 단위 줄바꿈 */
+  margin-right: 8px; /* 상태 텍스트와 간격 */
+}
+.item span { /* 상태 텍스트 */
+  white-space: nowrap; /* 상태는 줄바꿈 안함 */
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+/* 헤더 제목 길어질 경우 처리 */
+.m-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: calc(100% - 120px); /* 좌우 버튼 영역 제외한 최대 너비 */
+  padding: 0 5px; /* 좌우 약간 여백 */
+}
+
+/* 버튼 비활성화 시 스타일 */
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(50%);
+}

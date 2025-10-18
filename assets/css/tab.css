@@ -40,3 +40,29 @@
     text-align: center;
     margin-top: 12px;
 }
+
+/* assets/css/tab.css 에 추가 */
+#admin-login main > .lbl {
+  margin-top: 16px; /* 레이블 위에 간격 */
+}
+
+#admin-login main > .inp {
+  margin-bottom: 8px; /* 입력 필드 아래 간격 */
+}
+
+#admin-login main > #btn-admin-next {
+  margin-top: 24px; /* 다음 버튼 위에 큰 간격 */
+  margin-bottom: 12px; /* 다음 버튼 아래 간격 */
+}
+
+#user-list .item, #admin-list .item {
+  padding: 16px; /* 터치 영역 확보 */
+  font-size: 1.05em; /* 폰트 약간 크게 */
+}
+
+/* 사용자 정보 (me-brief) 스타일 */
+.brief {
+  margin-top: 24px; /* 위 섹션과 간격 */
+  border-left: 4px solid var(--pri); /* 좌측 강조선 */
+  padding-left: 16px;
+}
