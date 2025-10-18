@@ -15,7 +15,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(20px, 5vw, 36px);
+  gap: clamp(24px, 6vw, 44px);
   text-align: center;
 }
 
@@ -26,32 +26,66 @@
 
 .entry-brand {
   margin: 0;
-  font-size: clamp(2.6rem, 6vw, 3.4rem);
+  font-size: clamp(2.8rem, 6.4vw, 3.6rem);
   font-weight: 800;
   letter-spacing: 0.08em;
   color: #fff;
 }
 
-.entry-action {
-  width: 100%;
-  padding: clamp(18px, 3.2vw, 24px);
-  font-size: clamp(1.2rem, 3.4vw, 1.5rem);
-  border-radius: 22px;
+.entry-brand-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(10px, 2.2vw, 14px) clamp(22px, 4vw, 30px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.entry-sub {
-  margin: 0;
-  font-size: clamp(1rem, 2.4vw, 1.2rem);
-  color: var(--muted);
+.entry-tags {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.entry-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: rgba(128, 168, 148, 0.14);
+  border: 1px solid rgba(128, 168, 148, 0.3);
+  color: #d9e5de;
+  font-size: clamp(0.9rem, 2.1vw, 1rem);
   letter-spacing: 0.04em;
+}
+
+.entry-action {
+  width: 100%;
+  padding: clamp(22px, 3.8vw, 28px);
+  font-size: clamp(1.35rem, 3.8vw, 1.85rem);
+  font-weight: 700;
+  border-radius: 24px;
 }
 
 .entry-note {
   margin: 0;
   max-width: 420px;
   color: var(--muted);
+  line-height: 1.55;
+  text-align: center;
+  font-size: clamp(0.95rem, 2.2vw, 1.05rem);
+}
+
+.entry-footnote {
+  margin: 0;
+  color: var(--muted);
   line-height: 1.5;
   text-align: center;
+  max-width: 420px;
 }
 
 .auth-card {
