@@ -339,6 +339,8 @@ async function enrichRequestsWithItems(rows = []) {
 
     const request = detail.request || {};
     const items = Array.isArray(detail.items) ? detail.items : [];
+    const approvals = Array.isArray(detail.approvals) ? detail.approvals : [];
+    const executions = Array.isArray(detail.executions) ? detail.executions : [];
     const firearms = items.filter((item) => item.item_type === "FIREARM");
     const ammoItemsRaw = items.filter((item) => item.item_type === "AMMO");
 
@@ -368,17 +370,46 @@ async function enrichRequestsWithItems(rows = []) {
       row.location = request.location;
     }
 
+    const latestApproval = approvals
+      .filter((entry) => entry && entry.decision === "APPROVE" && entry.decided_at)
+      .sort((a, b) => new Date(b.decided_at) - new Date(a.decided_at))[0];
+    const latestReject = approvals
+      .filter((entry) => entry && entry.decision === "REJECT" && entry.decided_at)
+      .sort((a, b) => new Date(b.decided_at) - new Date(a.decided_at))[0];
+    const latestExecution = executions
+      .filter((entry) => entry && entry.executed_at)
+      .sort((a, b) => new Date(b.executed_at) - new Date(a.executed_at))[0];
+
+
     row.requested_at = row.requested_at || request.submitted_at || request.requested_at || request.created_at || row.created_at;
-    row.approved_at = row.approved_at || request.approved_at || null;
-    row.executed_at = row.executed_at || request.executed_at || null;
-    row.rejected_at = row.rejected_at || request.rejected_at || null;
-    row.updated_at = row.updated_at || request.updated_at || row.approved_at || row.executed_at || row.rejected_at || null;
+    row.approved_at = row.approved_at || request.approved_at || latestApproval?.decided_at || null;
+    row.executed_at = row.executed_at || request.executed_at || latestExecution?.executed_at || null;
+    row.rejected_at = row.rejected_at || request.rejected_at || latestReject?.decided_at || null;
+    row.updated_at = row.updated_at
+      || request.updated_at
+      || row.approved_at
+      || row.executed_at
+      || row.rejected_at
+      || null;
     row.created_at = row.created_at || request.created_at || row.requested_at || row.updated_at;
+
+    if (!row.approver_id && latestApproval?.approver_id) {
+      row.approver_id = latestApproval.approver_id;
+    }
+    if (!row.approver_name && latestApproval?.approver_name) {
+      row.approver_name = latestApproval.approver_name;
+    }
+    if (!row.status_reason && latestReject?.reason) {
+      row.status_reason = latestReject.reason;
+    }
+
 
     row.raw = {
       ...(row.raw || {}),
       request,
       items,
+      approvals,
+      executions,
       ammo_items: ammoItems,
       firearms
     };

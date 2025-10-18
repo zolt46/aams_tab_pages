@@ -5,8 +5,15 @@ import { getMe, renderMeBrief, mountMobileHeader } from "./util.js";
 const numberFormatter = new Intl.NumberFormat("ko-KR");
 
 function getLatestApprovalTimestamp(row = {}) {
+  const approvalFromDetail = Array.isArray(row?.raw?.approvals)
+    ? row.raw.approvals
+        .filter((entry) => entry && entry.decision === "APPROVE" && entry.decided_at)
+        .sort((a, b) => new Date(b.decided_at) - new Date(a.decided_at))[0]?.decided_at
+    : null;
+
   return row?.approved_at
     || row?.updated_at
+    || approvalFromDetail
     || row?.raw?.approved_at
     || row?.raw?.updated_at
     || row?.raw?.request?.approved_at
