@@ -1,10 +1,18 @@
 <div id="top"></div>
-<main class="panel p24 gap12">
-  <h2>관리자 로그인</h2>
-  <label class="lbl">관리자 ID</label>
-  <input id="admin-id" class="inp" placeholder="ID" />
-  <label class="lbl">비밀번호</label>
-  <input id="admin-pw" class="inp" type="password" placeholder="비밀번호" />
-  <button id="btn-admin-next" class="primary wfull">다음 (지문 인식)</button>
-  <p class="muted s">※ 일반 사용자 계정은 허용되지 않습니다.</p>
+<main class="auth-shell">
+  <section class="auth-card form-card">
+    <header class="auth-header">
+      <p class="badge">ADMIN</p>
+      <h2>관리자 로그인</h2>
+      <p class="muted">지문 인증 전 관리자 계정을 확인해주세요.</p>
+    </header>
+    <label class="lbl" for="admin-id">관리자 ID</label>
+    <input id="admin-id" class="inp" placeholder="ID" />
+
+    <label class="lbl" for="admin-pw">비밀번호</label>
+    <input id="admin-pw" class="inp" type="password" placeholder="비밀번호" />
+
+    <button id="btn-admin-next" class="primary wfull">다음 단계 (지문 인식)</button>
+    <p class="muted s center">일반 사용자 계정은 허용되지 않습니다.</p>
+  </section>
 </main>

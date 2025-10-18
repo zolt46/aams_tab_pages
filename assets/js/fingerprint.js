@@ -11,11 +11,14 @@ export async function initFpUser() {
     const rows = await listUsers({ role: "user" });
     if (!rows?.length) box.innerHTML = `<div class="muted">사용자가 없습니다.</div>`;
     else {
+      const attr = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+      const escape = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       box.innerHTML = rows.map(r => `
-        <button class="item" data-id="${r.id}"
-                data-name="${r.name||""}" data-rank="${r.rank||""}"
-                data-unit="${r.unit||""}" data-serial="${r.military_id||""}">
-          ${r.name||"사용자"} ${r.rank?`(${r.rank})`:""} · ${r.unit||""}
+        <button class="item" data-id="${attr(r.id)}"
+                data-name="${attr(r.name)}" data-rank="${attr(r.rank)}"
+                data-unit="${attr(r.unit)}" data-serial="${attr(r.military_id)}"
+                data-position="${attr(r.position)}" data-contact="${attr(r.contact)}">
+          ${escape(r.name||"사용자")} ${r.rank?`(${escape(r.rank)})`:""} · ${escape(r.unit)}
         </button>
       `).join("");
     }
@@ -31,6 +34,9 @@ export async function initFpUser() {
       rank: b.getAttribute("data-rank"),
       unit: b.getAttribute("data-unit"),
       serial: b.getAttribute("data-serial"),
+      position: b.getAttribute("data-position"),
+      duty: b.getAttribute("data-position"),
+      contact: b.getAttribute("data-contact"),
       is_admin: false
     };
     localStorage.setItem("AAMS_ME", JSON.stringify(me));
@@ -50,10 +56,15 @@ export async function initFpAdmin() {
     if (!filtered.length) {
       box.innerHTML = `<div class="error">직전 로그인한 관리자 계정(${loginId})을 찾을 수 없습니다.</div>`;
     } else {
+      const attr = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+      const escape = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       box.innerHTML = filtered.map(r => `
-        <button class="item" data-id="${r.id}"
-                data-name="${r.name||""}" data-userid="${r.user_id||""}">
-          ${r.name||"관리자"} (${r.user_id||"-"})
+        <button class="item" data-id="${attr(r.id)}"
+                data-name="${attr(r.name)}" data-userid="${attr(r.user_id)}"
+                data-rank="${attr(r.rank)}" data-unit="${attr(r.unit)}"
+                data-position="${attr(r.position)}" data-contact="${attr(r.contact)}"
+                data-serial="${attr(r.military_id)}">
+          ${escape(r.name||"관리자")} (${escape(r.user_id)||"-"})
         </button>
       `).join("");
     }
@@ -67,6 +78,12 @@ export async function initFpAdmin() {
       id: Number(b.getAttribute("data-id")),
       name: b.getAttribute("data-name"),
       user_id: b.getAttribute("data-userid"),
+      rank: b.getAttribute("data-rank"),
+      unit: b.getAttribute("data-unit"),
+      serial: b.getAttribute("data-serial"),
+      position: b.getAttribute("data-position"),
+      duty: b.getAttribute("data-position"),
+      contact: b.getAttribute("data-contact"),
       is_admin: true
     };
     localStorage.setItem("AAMS_ME", JSON.stringify(me));

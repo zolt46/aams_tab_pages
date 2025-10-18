@@ -1,10 +1,269 @@
 /* assets/css/tab.css */
 
-/* 사용자 메인 (#/user) - 집행 대기 목록 아이템 스타일 */
+/* --- 공통 인증 화면 스타일 --- */
+
+.auth-shell {
+  min-height: calc(100dvh - var(--header-height));
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: clamp(32px, 5vw, 72px) clamp(16px, 5vw, 96px);
+  background: var(--bg);
+}
+
+.entry-screen {
+  width: min(520px, 100%);
+  display: flex;
+  justify-content: center;
+  text-align: center;
+}
+
+.entry-logo {
+  width: clamp(128px, 28vw, 176px);
+  height: auto;
+  cursor: pointer;
+}
+
+.entry-brand {
+  margin: 0;
+  font-size: clamp(2.15rem, 5.2vw, 2.85rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #fff;
+}
+
+.entry-brand-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(8px, 1.8vw, 12px) clamp(20px, 3.2vw, 26px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.entry-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 18px;
+  border-radius: 18px;
+  background: rgba(59, 80, 68, 0.28);
+  border: 1px solid rgba(116, 151, 134, 0.32);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.entry-identity-main {
+  font-size: clamp(1.05rem, 2.4vw, 1.2rem);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #e6f1eb;
+}
+
+.entry-identity-sub {
+  font-size: clamp(0.9rem, 2vw, 1.05rem);
+  color: #c7d4cd;
+}
+
+.entry-action {
+  width: 100%;
+  padding: clamp(16px, 3vw, 22px);
+  font-size: clamp(1.15rem, 3.2vw, 1.55rem);
+  font-weight: 700;
+  border-radius: 20px;
+}
+
+.entry-note {
+  margin: 0;
+  max-width: 420px;
+  color: var(--muted);
+  line-height: 1.5;
+  text-align: center;
+  font-size: clamp(0.88rem, 2vw, 0.98rem);
+}
+
+.entry-footnote {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+  text-align: center;
+  max-width: 420px;
+}
+
+.auth-card {
+  width: min(440px, 100%);
+  background: rgba(20, 27, 23, 0.96);
+  border: 1px solid rgba(86, 116, 97, 0.32);
+  border-radius: 20px;
+  padding: clamp(28px, 3.5vw, 36px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.45);
+}
+
+.auth-card.entry-card {
+  width: min(480px, 100%);
+  gap: 16px;
+}
+
+.auth-card.list-card {
+  width: min(520px, 100%);
+}
+
+.auth-card.form-card .primary {
+  margin-top: 8px;
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.auth-brand.simple {
+  align-items: flex-start;
+}
+
+.auth-brand .logo {
+  width: 68px;
+  height: auto;
+  border-radius: 16px;
+  object-fit: contain;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.auth-brand.simple .logo {
+  margin-top: 6px;
+}
+
+.auth-title {
+  font-size: clamp(1.8rem, 2.8vw, 2.4rem);
+  margin: 4px 0 0;
+  color: #fff;
+}
+
+.auth-sub {
+  font-size: 1.05em;
+  color: var(--muted);
+  margin: 0;
+}
+
+.auth-message {
+  margin: 0;
+  color: #d7dfda;
+  line-height: 1.55;
+}
+
+.auth-perks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 14px;
+}
+
+.auth-perks li {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+  padding: 14px 18px;
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.auth-perks strong {
+  font-size: 1.05em;
+  color: #fff;
+}
+
+.auth-perks span {
+  color: var(--muted);
+  font-size: 0.92em;
+}
+
+.auth-actions {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-footnote {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.92em;
+  margin: 0;
+}
+
+.auth-header {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-header h2 {
+  margin: 0;
+}
+
+.auth-header .muted {
+  margin: 0;
+}
+
+.auth-list {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-list .item {
+  border-radius: 16px;
+  padding: 18px 20px;
+  background: rgba(39, 53, 44, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.auth-list .item:hover {
+  background: rgba(66, 92, 72, 0.9);
+}
+
+.auth-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 12px;
+}
+
+@media (max-width: 540px) {
+  .auth-shell {
+    padding: 24px 18px 48px;
+  }
+
+  .entry-screen {
+    gap: 24px;
+  }
+
+  .auth-card.entry-card {
+    padding: 28px 22px;
+  }
+
+  .auth-brand {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .auth-brand .logo {
+    width: 60px;
+    height: auto;
+  }
+}
+
+/* --- 사용자 메인 (#/user) - 집행 대기 목록 아이템 스타일 --- */
 #pending-list .item .row {
-  justify-content: space-between; /* 제목과 상태 양끝 정렬 */
+  justify-content: space-between;
   margin-bottom: 6px;
 }
+
 #pending-list .item .details {
   border-top: 1px dashed var(--border-color);
   padding-top: 10px;
@@ -12,57 +271,26 @@
   font-size: 0.9em;
   color: var(--muted);
 }
+
 #pending-list .item .details .row {
-  justify-content: flex-end; /* 집행 버튼 오른쪽 정렬 */
+  justify-content: flex-end;
   margin-top: 12px;
 }
+
 #pending-list .item .btn-exec {
-  padding: 8px 12px; /* 버튼 크기 조정 */
+  padding: 8px 12px;
   font-size: 0.9em;
 }
 
-/* 관리자 메인 (#/admin) - 버튼 정렬 */
-#admin-main .row { /* 버튼들 가로 정렬 */
+/* --- 관리자 메인 (#/admin) - 버튼 정렬 --- */
+#admin-main .row {
   gap: 12px;
-  justify-content: flex-start; /* 왼쪽 정렬 */
+  justify-content: flex-start;
 }
 
-/* 로그인 폼 정렬 개선 */
-#admin-login main, #fp-user main, #fp-admin main {
-   display: flex;
-   flex-direction: column;
-   gap: 16px; /* 요소 간 간격 */
-}
-#admin-login label, #fp-user label, #fp-admin label {
-    margin-bottom: 0; /* base.css에서 추가된 margin 제거 */
-}
-#admin-login .muted.s { /* 하단 안내 문구 */
-    text-align: center;
-    margin-top: 12px;
-}
-
-/* assets/css/tab.css 에 추가 */
-#admin-login main > .lbl {
-  margin-top: 16px; /* 레이블 위에 간격 */
-}
-
-#admin-login main > .inp {
-  margin-bottom: 8px; /* 입력 필드 아래 간격 */
-}
-
-#admin-login main > #btn-admin-next {
-  margin-top: 24px; /* 다음 버튼 위에 큰 간격 */
-  margin-bottom: 12px; /* 다음 버튼 아래 간격 */
-}
-
-#user-list .item, #admin-list .item {
-  padding: 16px; /* 터치 영역 확보 */
-  font-size: 1.05em; /* 폰트 약간 크게 */
-}
-
-/* 사용자 정보 (me-brief) 스타일 */
+/* --- 사용자 정보 (me-brief) 스타일 --- */
 .brief {
-  margin-top: 24px; /* 위 섹션과 간격 */
-  border-left: 4px solid var(--pri); /* 좌측 강조선 */
+  margin-top: 24px;
+  border-left: 4px solid var(--pri);
   padding-left: 16px;
 }

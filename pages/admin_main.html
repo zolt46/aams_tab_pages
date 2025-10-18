@@ -1,18 +1,32 @@
 <div id="top"></div>
-<main class="panel p24 gap12">
-<h2>관리</h2>
-<section class="row gap12">
-<button id="btn-approvals" class="secondary">승인/거부/재오픈</button>
-</section>
-<section id="admin-area" class="stack gap12">
-<div class="muted">메뉴를 선택하세요.</div>
-</section>
+<main class="panel admin-hub" id="admin-main">
+  <section class="admin-hub-hero">
+    <h1 class="hub-title">관리자 센터</h1>
+    <p class="hub-subtitle">필요한 기능을 선택해 자세한 정보를 확인하세요.</p>
+    <div id="admin-hub-greeting" class="hub-greeting" aria-live="polite"></div>
+  </section>
+
+  <section class="admin-hub-actions" aria-label="관리자 주요 기능">
+    <a class="hub-card" href="#/admin-summary">
+      <div class="hub-card-icon" aria-hidden="true">📊</div>
+      <div class="hub-card-body">
+        <h2>관리자 요약</h2>
+        <p>프로필과 자원 현황을 한 눈에 확인합니다.</p>
+      </div>
+      <span class="hub-card-arrow" aria-hidden="true">›</span>
+    </a>
+    <a class="hub-card" href="#/admin-requests">
+      <div class="hub-card-icon" aria-hidden="true">📝</div>
+      <div class="hub-card-body">
+        <h2>신청 현황</h2>
+        <p>승인·거부·재오픈을 포함한 모든 요청을 관리합니다.</p>
+      </div>
+      <span class="hub-card-arrow" aria-hidden="true">›</span>
+    </a>
+  </section>
 </main>
 <script type="module">
-import { mountMobileHeader } from "../assets/js/util.js"; // 경로 수정
-import { initAdminMain } from "../assets/js/admin.js"; // 경로 수정
+import { initAdminMain } from "../assets/js/admin.js";
 
-// pageType을 'main'으로 지정 (뒤로가기 자동 숨김)
-await mountMobileHeader({ title: "관리자", pageType: 'main' });
 initAdminMain();
 </script>

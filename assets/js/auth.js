@@ -3,11 +3,57 @@
 export async function initMain() {
   const logo = document.getElementById("logo");
   const btn  = document.getElementById("btn-login");
-  let tap = 0, timer;
-  logo?.addEventListener("click", ()=>{
-    clearTimeout(timer); tap++; timer = setTimeout(()=> tap=0, 1200);
-    if (tap >= 5) { location.hash = "#/admin-login"; tap = 0; }
-  });
+  if (logo) {
+    const REQUIRED_TAPS = 5;
+    const TAP_WINDOW_MS = 3500;
+
+    let tapCount = 0;
+    let windowStart = 0;
+
+    const resetCounter = () => {
+      tapCount = 0;
+      windowStart = 0;
+    };
+
+    const registerTap = () => {
+      const now = Date.now();
+
+      if (!windowStart || now - windowStart > TAP_WINDOW_MS) {
+        windowStart = now;
+        tapCount = 0;
+      }
+
+      tapCount += 1;
+
+      if (tapCount >= REQUIRED_TAPS) {
+        resetCounter();
+        location.hash = "#/admin-login";
+      }
+    };
+
+    const onPointerDown = (evt) => {
+      if (evt.pointerType === "mouse" && evt.button !== 0) return;
+      registerTap();
+    };
+
+    const onKeyDown = (evt) => {
+      if (evt.key === "Enter" || evt.key === " ") {
+        evt.preventDefault();
+        registerTap();
+      }
+    };
+
+    if (window.PointerEvent) {
+      logo.addEventListener("pointerdown", onPointerDown, { passive: true });
+    } else {
+      logo.addEventListener("click", registerTap);
+    }
+    logo.addEventListener("keydown", onKeyDown);
+
+    if (!logo.hasAttribute("tabindex")) {
+      logo.setAttribute("tabindex", "0");
+    }
+  }
   btn?.addEventListener("click", ()=>{ location.hash = "#/fp-user"; });
 }
 
@@ -38,4 +84,4 @@ export function logout() {
   } catch (e) {}
   location.hash = "#/login";
   location.reload();
- }
+}
