@@ -15,6 +15,14 @@ const routes = {
   "#/fp-admin":    { candidates:["./pages/fp_admin.html", "./fp_admin.html"],    init: FP.initFpAdmin },
   "#/user":        { candidates:["./pages/user_main.html", "./user_main.html"],   init: UserPage.initUserMain },
   "#/admin":       { candidates:["./pages/admin_main.html", "./admin_main.html"],  init: AdminPage.initAdminMain },
+  "#/admin-summary": {
+    candidates:["./pages/admin_summary.html", "./admin_summary.html"],
+    init: AdminPage.initAdminSummary
+  },
+  "#/admin-requests": {
+    candidates:["./pages/admin_requests.html", "./admin_requests.html"],
+    init: AdminPage.initAdminRequests
+  },
 };
 
 const DEFAULT_ROUTE = "#/";

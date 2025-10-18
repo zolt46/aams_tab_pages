@@ -1,0 +1,15 @@
+<div id="top"></div>
+<main class="panel admin-dashboard">
+  <section class="admin-overview">
+    <div class="section-header">
+      <h2 class="section-title">관리자 요약</h2>
+    </div>
+    <div id="me-brief" class="brief enhanced" aria-live="polite"></div>
+    <div id="admin-stats" class="admin-stats" aria-live="polite"></div>
+  </section>
+</main>
+<script type="module">
+import { initAdminSummary } from "../assets/js/admin.js";
+
+initAdminSummary();
+</script>

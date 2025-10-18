@@ -177,9 +177,15 @@ export function renderMeBrief(me = {}) {
   const displayName = `${me.rank ? `${escape(me.rank)} ` : ""}${escape(me.name || "사용자")}`.trim();
   const unit = escape(me.unit || me.unit_name || "-");
   const serial = escape(me.serial || me.military_id || me.militaryId || me.service_no || "-");
-  const weapon = escape(me.weapon_name || me.weapon_code || me.weapon || "-");
+  const rawWeapon = me.weapon_name || me.weapon_code || me.weapon;
+  const hasWeapon = !!rawWeapon;
+  const weapon = escape(rawWeapon || "-");
   const duty = escape(me.duty || me.position || me.role_label || me.role || "-");
   const contact = escape(me.phone || me.contact || me.tel || "-");
+  const accountLabel = hasWeapon ? "주요 장비" : "계정 유형";
+  const accountValue = hasWeapon
+    ? weapon
+    : escape(me.is_admin ? "관리자" : "일반 사용자");
 
   box.innerHTML = `
     <div class="overview">
@@ -195,8 +201,8 @@ export function renderMeBrief(me = {}) {
         <span class="val">${serial}</span>
       </div>
       <div role="listitem">
-        <span class="lbl">주요 장비</span>
-        <span class="val">${weapon}</span>
+        <span class="lbl">${accountLabel}</span>
+        <span class="val">${accountValue}</span>
       </div>
       <div role="listitem">
         <span class="lbl">담당 임무</span>

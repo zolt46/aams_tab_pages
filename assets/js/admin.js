@@ -30,34 +30,101 @@ let isLoadingRequests = false;
 
 export async function initAdminMain() {
   try {
-    await mountMobileHeader({ title: "관리자", pageType: "main", showLogout: true });
+    await mountMobileHeader({ title: "관리자 홈", pageType: "main", showLogout: true });
+
+    listEl = null;
+    refreshBtn = null;
+    summaryEl = null;
+    overviewEl = null;
+    filterWrap = null;
+    isLoadingRequests = false;
+
+    const greetingEl = document.getElementById("admin-hub-greeting");
+    const me = await ensureAdminProfile();
+    if (greetingEl) {
+      greetingEl.innerHTML = renderHubGreeting(me);
+    }
+  } catch (error) {
+    console.error("[AAMS][admin] 관리자 홈 초기화 실패", error);
+    showAdminInitError(error);
+  }
+}
+
+export async function initAdminSummary() {
+  try {
+    await mountMobileHeader({
+      title: "관리자 요약",
+      pageType: "subpage",
+      showLogout: true,
+      backTo: "#/admin",
+      homeTo: "#/admin"
+    });
+
+    listEl = null;
+    refreshBtn = null;
+    overviewEl = null;
+    filterWrap = null;
+    isLoadingRequests = false;
+    summaryEl = document.getElementById("admin-stats");
+
+    const me = await ensureAdminProfile();
+    renderMeBrief(me);
+    adaptStatLabels();
+
+    await loadSummary();
+  } catch (error) {
+    console.error("[AAMS][admin] 관리자 요약 초기화 실패", error);
+    showAdminInitError(error);
+  }
+}
+
+export async function initAdminRequests() {
+  try {
+    await mountMobileHeader({
+      title: "신청 현황",
+      pageType: "subpage",
+      showLogout: true,
+      backTo: "#/admin",
+      homeTo: "#/admin"
+    });
 
     listEl = document.getElementById("requests-list");
     refreshBtn = document.getElementById("requests-refresh");
-    summaryEl = document.getElementById("admin-stats");
     overviewEl = document.getElementById("request-overview");
     filterWrap = document.getElementById("request-filters");
+    summaryEl = null;
+    isLoadingRequests = false;
 
     if (!listEl) {
       console.error("[AAMS][admin] 요청 리스트 컨테이너가 없습니다.");
       return;
     }
 
-    let me = getMe();
-    me = await hydrateAdmin(me);
-    state.me = me;
+    const me = await ensureAdminProfile();
     renderMeBrief(me);
     adaptStatLabels();
 
+    state.filter = "pending";
     wireFilters();
     refreshBtn?.addEventListener("click", () => loadRequests({ silent: false }));
 
-    await Promise.all([loadSummary(), loadRequests({ silent: false })]);
+    await loadRequests({ silent: false });
   } catch (error) {
-    console.error("[AAMS][admin] 관리자 메인 초기화 실패", error);
+    console.error("[AAMS][admin] 신청 현황 초기화 실패", error);
     showAdminInitError(error);
   }
 }
+
+async function ensureAdminProfile() {
+  if (state.me?.id) {
+    return state.me;
+  }
+  let me = getMe();
+  me = await hydrateAdmin(me);
+  state.me = me;
+  return me;
+}
+
 
 async function hydrateAdmin(me = {}) {
   if (!me?.id) return me;
@@ -86,8 +153,8 @@ async function hydrateAdmin(me = {}) {
 
 function adaptStatLabels() {
   const labels = document.querySelectorAll("#me-brief .stat-card .label");
-  if (labels[0]) labels[0].textContent = "대기";
-  if (labels[1]) labels[1].textContent = "최근 접수";
+  if (labels[0]) labels[0].textContent = "승인 대기";
+  if (labels[1]) labels[1].textContent = "최근 처리";
 }
 
 function wireFilters() {
@@ -122,6 +189,7 @@ async function loadSummary() {
   try {
     const data = await fetchDashboardSummary();
     summaryEl.innerHTML = renderSummaryCards(data);
+    updateAdminStats({ pendingCount: fmtNumber(data?.pending || 0), latest: "-" });
   } catch (error) {
     console.error("[AAMS][admin] 요약 불러오기 실패", error);
     summaryEl.innerHTML = `<div class="error">요약 정보를 불러오지 못했습니다.</div>`;
@@ -488,25 +556,45 @@ function renderSummaryCards(data = {}) {
   return `
     <div class="metric-grid">
       <article class="metric-card">
-        <div class="metric-label"><span class="icon">👤</span>인원</div>
+        <div class="metric-label"><span class="icon">👥</span>전체 인원</div>
         <div class="metric-value">${fmt(data.person || 0)}</div>
         <div class="metric-sub">관리자 ${fmt(data.admins || 0)}명</div>
       </article>
       <article class="metric-card">
-        <div class="metric-label"><span class="icon">🔫</span>총기</div>
+        <div class="metric-label"><span class="icon">🛡️</span>운영 상태</div>
         <div class="metric-value">${fmt(data.firearm || 0)}</div>
         <div class="metric-sub">불입 ${fmt(data.inDepot || 0)} · 불출 ${fmt(data.deployed || 0)}</div>
       </article>
       <article class="metric-card">
-        <div class="metric-label"><span class="icon">🎯</span>탄약 품목</div>
+        <div class="metric-label"><span class="icon">📦</span>탄약 품목</div>
         <div class="metric-value">${fmt(data.ammo || 0)}</div>
         <div class="metric-sub">총 재고 ${fmt(data.totalAmmoQty || 0)} · 저수량 ${fmt(data.lowAmmo || 0)}</div>
       </article>
       <article class="metric-card">
         <div class="metric-label"><span class="icon">⏳</span>승인 대기</div>
         <div class="metric-value">${fmt(data.pending || 0)}</div>
-        <div class="metric-sub">대기 요청 수 (SUBMITTED)</div>
+        <div class="metric-sub">접수 대기 중인 요청 수</div>
       </article>
     </div>
+  `;
+}
+
+function renderHubGreeting(me = {}) {
+  if (!me?.id) {
+    return `<div class="muted">계정 정보를 불러오지 못했습니다.</div>`;
+  }
+
+  const name = [me.rank, me.name].filter(Boolean).join(" ") || "관리자";
+  const unit = me.unit || me.unit_name || "-";
+  const escape = (value) => String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+  return `
+    <p class="hub-greeting-text"><strong>${escape(name)}</strong>님, 환영합니다.</p>
+    <p class="hub-greeting-sub">현재 소속: ${escape(unit || "-")}</p>
   `;
 }

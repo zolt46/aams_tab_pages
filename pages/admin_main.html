@@ -1,28 +1,28 @@
 <div id="top"></div>
-<main class="panel admin-dashboard">
-  <section class="admin-overview">
-    <div class="section-header">
-      <h2 class="section-title">관리자 요약</h2>
-    </div>
-    <div id="me-brief" class="brief enhanced" aria-live="polite"></div>
-    <div id="admin-stats" class="admin-stats" aria-live="polite"></div>
+<main class="panel admin-hub" id="admin-main">
+  <section class="admin-hub-hero">
+    <h1 class="hub-title">관리자 센터</h1>
+    <p class="hub-subtitle">필요한 기능을 선택해 자세한 정보를 확인하세요.</p>
+    <div id="admin-hub-greeting" class="hub-greeting" aria-live="polite"></div>
   </section>
 
-  <section class="admin-requests">
-    <div class="section-header">
-      <h2 class="section-title">신청 현황</h2>
-      <button type="button" id="requests-refresh" class="section-toggle" aria-label="신청 목록 새로고침">새로고침</button>
-    </div>
-    <div id="request-overview" class="request-overview" aria-live="polite"></div>
-    <div id="request-filters" class="filter-bar" role="tablist" aria-label="신청 상태 필터">
-      <button type="button" class="chip-button is-active" data-filter="pending" role="tab" aria-selected="true">대기 <span class="count" id="count-pending">0</span></button>
-      <button type="button" class="chip-button" data-filter="approved" role="tab" aria-selected="false">승인 <span class="count" id="count-approved">0</span></button>
-      <button type="button" class="chip-button" data-filter="rejected" role="tab" aria-selected="false">거부 <span class="count" id="count-rejected">0</span></button>
-      <button type="button" class="chip-button" data-filter="executed" role="tab" aria-selected="false">집행 <span class="count" id="count-executed">0</span></button>
-      <button type="button" class="chip-button" data-filter="cancelled" role="tab" aria-selected="false">취소 <span class="count" id="count-cancelled">0</span></button>
-      <button type="button" class="chip-button" data-filter="all" role="tab" aria-selected="false">전체 <span class="count" id="count-all">0</span></button>
-    </div>
-    <div id="requests-list" class="list pending-list" role="region" aria-live="polite"></div>
+  <section class="admin-hub-actions" aria-label="관리자 주요 기능">
+    <a class="hub-card" href="#/admin-summary">
+      <div class="hub-card-icon" aria-hidden="true">📊</div>
+      <div class="hub-card-body">
+        <h2>관리자 요약</h2>
+        <p>프로필과 자원 현황을 한 눈에 확인합니다.</p>
+      </div>
+      <span class="hub-card-arrow" aria-hidden="true">›</span>
+    </a>
+    <a class="hub-card" href="#/admin-requests">
+      <div class="hub-card-icon" aria-hidden="true">📝</div>
+      <div class="hub-card-body">
+        <h2>신청 현황</h2>
+        <p>승인·거부·재오픈을 포함한 모든 요청을 관리합니다.</p>
+      </div>
+      <span class="hub-card-arrow" aria-hidden="true">›</span>
+    </a>
   </section>
 </main>
 <script type="module">
