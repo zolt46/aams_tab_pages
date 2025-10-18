@@ -3,6 +3,9 @@ import * as FP from "./fingerprint.js";
 import * as UserPage from "./user.js";
 import * as AdminPage from "./admin.js";
 
+import { assertApiBaseHealthy } from "./util.js";
+
+
 // 라우트별: 1) 주입할 파일 후보, 2) 주입 후 실행할 init 함수
 const routes = {
   "#/":            { candidates:["./pages/index.html","./index_body.html"],            init: Auth.initMain },
@@ -46,8 +49,12 @@ export async function mountRoute(){
   }
 }
 
+// ...
 export function bootstrap(){
   addEventListener("hashchange", mountRoute);
-  addEventListener("DOMContentLoaded", mountRoute);
+  addEventListener("DOMContentLoaded", async () => {
+    await assertApiBaseHealthy(); // ⬅️ 첫 로드에 API_BASE 건강 체크
+    mountRoute();
+  });
   if (!location.hash) location.hash = "#/";
 }
