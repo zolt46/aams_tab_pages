@@ -4,9 +4,11 @@ export async function initMain() {
   const logo = document.getElementById("logo");
   const btn  = document.getElementById("btn-login");
   if (logo) {
+    const REQUIRED_TAPS = 5;
+    const TAP_WINDOW_MS = 3500;
     let tapCount = 0;
     let timeoutId = 0;
-    let lastPointerStamp = 0;
+    let suppressNextClick = false;
 
     const resetCounter = () => {
       tapCount = 0;
@@ -19,25 +21,25 @@ export async function initMain() {
     const registerTap = () => {
       tapCount += 1;
       if (timeoutId) clearTimeout(timeoutId);
-      timeoutId = window.setTimeout(resetCounter, 3500);
+      timeoutId = window.setTimeout(resetCounter, TAP_WINDOW_MS);
 
-      if (tapCount >= 5) {
+      if (tapCount >= REQUIRED_TAPS) {
         resetCounter();
         location.hash = "#/admin-login";
       }
     };
 
-    const onPointerDown = (evt) => {
-      if (evt.pointerType === "mouse" && evt.button !== 0) return;
-      lastPointerStamp = evt.timeStamp ?? 0;
+    const onClick = () => {
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        return;
+      }
       registerTap();
     };
 
-    const onClick = (evt) => {
-      // pointerdown 후 이어지는 click 이벤트는 중복 계산하지 않는다.
-      if (lastPointerStamp && evt.timeStamp && Math.abs(evt.timeStamp - lastPointerStamp) < 320) {
-        return;
-      }
+    const onPointerUp = (evt) => {
+      if (evt.pointerType === "mouse" && evt.button !== 0) return;
+      suppressNextClick = true; // 같은 입력에서 이어질 click은 무시
       registerTap();
     };
 
@@ -48,7 +50,7 @@ export async function initMain() {
       }
     };
 
-    logo.addEventListener("pointerdown", onPointerDown, { passive: true });
+    logo.addEventListener("pointerup", onPointerUp, { passive: true });
     logo.addEventListener("click", onClick);
     logo.addEventListener("keydown", onKeyDown);
 
