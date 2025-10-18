@@ -21,6 +21,7 @@
 .entry-logo {
   width: clamp(128px, 28vw, 176px);
   height: auto;
+  cursor: pointer;
 }
 
 .entry-brand {

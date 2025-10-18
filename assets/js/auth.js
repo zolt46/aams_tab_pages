@@ -5,23 +5,57 @@ export async function initMain() {
   const btn  = document.getElementById("btn-login");
   if (logo) {
     let tapCount = 0;
-    let lastTapAt = 0;
+    let timeoutId = 0;
+    let lastPointerStamp = 0;
 
-    logo.addEventListener("click", () => {
-      const now = Date.now();
-      if (now - lastTapAt > 3000) {
-        tapCount = 0;
+    const resetCounter = () => {
+      tapCount = 0;
+      lastPointerStamp = 0;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = 0;
       }
+    };
 
-      lastTapAt = now;
+    const registerTap = () => {
       tapCount += 1;
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(resetCounter, 3500);
 
       if (tapCount >= 5) {
-        tapCount = 0;
-        lastTapAt = 0;
+        resetCounter();
         location.hash = "#/admin-login";
       }
-    });
+    };
+
+    const onPointerDown = (evt) => {
+      if (evt.pointerType === "mouse" && evt.button !== 0) return;
+      lastPointerStamp = evt.timeStamp ?? 0;
+      registerTap();
+    };
+
+    const onClick = (evt) => {
+      // pointerdown 후 이어지는 click 이벤트는 중복 계산하지 않는다.
+      if (lastPointerStamp && evt.timeStamp && Math.abs(evt.timeStamp - lastPointerStamp) < 320) {
+        return;
+      }
+      registerTap();
+    };
+
+    const onKeyDown = (evt) => {
+      if (evt.key === "Enter" || evt.key === " ") {
+        evt.preventDefault();
+        registerTap();
+      }
+    };
+
+    logo.addEventListener("pointerdown", onPointerDown, { passive: true });
+    logo.addEventListener("click", onClick);
+    logo.addEventListener("keydown", onKeyDown);
+
+    if (!logo.hasAttribute("tabindex")) {
+      logo.setAttribute("tabindex", "0");
+    }
   }
   btn?.addEventListener("click", ()=>{ location.hash = "#/fp-user"; });
 }
