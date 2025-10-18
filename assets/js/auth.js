@@ -3,11 +3,24 @@
 export async function initMain() {
   const logo = document.getElementById("logo");
   const btn  = document.getElementById("btn-login");
-  let tap = 0, timer;
-  logo?.addEventListener("click", ()=>{
-    clearTimeout(timer); tap++; timer = setTimeout(()=> tap=0, 1200);
-    if (tap >= 5) { location.hash = "#/admin-login"; tap = 0; }
-  });
+  if (logo) {
+    let tapCount = 0;
+    let resetTimer = null;
+    logo.addEventListener("click", () => {
+      tapCount += 1;
+      if (resetTimer) clearTimeout(resetTimer);
+
+      if (tapCount >= 5) {
+        tapCount = 0;
+        location.hash = "#/admin-login";
+        return;
+      }
+
+      resetTimer = setTimeout(() => {
+        tapCount = 0;
+      }, 1500);
+    });
+  }
   btn?.addEventListener("click", ()=>{ location.hash = "#/fp-user"; });
 }
 
