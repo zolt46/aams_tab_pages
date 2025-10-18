@@ -5,14 +5,24 @@
       <h2 class="section-title">관리자 요약</h2>
     </div>
     <div id="me-brief" class="brief enhanced" aria-live="polite"></div>
+    <div id="admin-stats" class="admin-stats" aria-live="polite"></div>
   </section>
 
-  <section class="admin-pending">
+  <section class="admin-requests">
     <div class="section-header">
-      <h2 class="section-title">승인 대기</h2>
-      <button type="button" id="pending-refresh" class="section-toggle" aria-label="승인 대기 새로고침">새로고침</button>
+      <h2 class="section-title">신청 현황</h2>
+      <button type="button" id="requests-refresh" class="section-toggle" aria-label="신청 목록 새로고침">새로고침</button>
     </div>
-    <div id="pending-list" class="list pending-list" role="region" aria-live="polite"></div>
+    <div id="request-overview" class="request-overview" aria-live="polite"></div>
+    <div id="request-filters" class="filter-bar" role="tablist" aria-label="신청 상태 필터">
+      <button type="button" class="chip-button is-active" data-filter="pending" role="tab" aria-selected="true">대기 <span class="count" id="count-pending">0</span></button>
+      <button type="button" class="chip-button" data-filter="approved" role="tab" aria-selected="false">승인 <span class="count" id="count-approved">0</span></button>
+      <button type="button" class="chip-button" data-filter="rejected" role="tab" aria-selected="false">거부 <span class="count" id="count-rejected">0</span></button>
+      <button type="button" class="chip-button" data-filter="executed" role="tab" aria-selected="false">집행 <span class="count" id="count-executed">0</span></button>
+      <button type="button" class="chip-button" data-filter="cancelled" role="tab" aria-selected="false">취소 <span class="count" id="count-cancelled">0</span></button>
+      <button type="button" class="chip-button" data-filter="all" role="tab" aria-selected="false">전체 <span class="count" id="count-all">0</span></button>
+    </div>
+    <div id="requests-list" class="list pending-list" role="region" aria-live="polite"></div>
   </section>
 </main>
 <script type="module">

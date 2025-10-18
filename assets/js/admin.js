@@ -1,92 +1,255 @@
-import { adminAction, fetchAdminPending } from "./api.js";
-import { getMe, mountMobileHeader, renderMeBrief } from "./util.js";
+import {
+  adminAction,
+  fetchAdminRequestOverview,
+  fetchDashboardSummary,
+  fetchPersonnelById
+} from "./api.js";
+import { getMe, mountMobileHeader, renderMeBrief, saveMe } from "./util.js";
+
+const state = {
+  me: null,
+  filter: "pending",
+  requests: [],
+  counts: {
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    executed: 0,
+    cancelled: 0,
+    other: 0,
+    total: 0
+  }
+};
+
+let listEl;
+let refreshBtn;
+let summaryEl;
+let overviewEl;
+let filterWrap;
+let isLoadingRequests = false;
 
 export async function initAdminMain() {
   try {
     await mountMobileHeader({ title: "관리자", pageType: "main", showLogout: true });
 
-    const me = getMe();
-    renderMeBrief(me);
-    adaptStatLabels();
+    listEl = document.getElementById("requests-list");
+    refreshBtn = document.getElementById("requests-refresh");
+    summaryEl = document.getElementById("admin-stats");
+    overviewEl = document.getElementById("request-overview");
+    filterWrap = document.getElementById("request-filters");
 
-    const list = document.getElementById("pending-list");
-    const refreshBtn = document.getElementById("pending-refresh");
-
-    if (!list) {
-      console.error("[AAMS][admin] pending list container가 없습니다.");
+    if (!listEl) {
+      console.error("[AAMS][admin] 요청 리스트 컨테이너가 없습니다.");
       return;
     }
 
-    let isLoading = false;
+    let me = getMe();
+    me = await hydrateAdmin(me);
+    state.me = me;
+    renderMeBrief(me);
+    adaptStatLabels();
 
-    const setRefreshState = (busy) => {
-      if (!refreshBtn) return;
-      refreshBtn.disabled = busy;
-      refreshBtn.textContent = busy ? "새로고침중…" : "새로고침";
-    };
+    wireFilters();
+    refreshBtn?.addEventListener("click", () => loadRequests({ silent: false }));
 
-    const load = async ({ silent } = {}) => {
-      if (isLoading) return;
-      isLoading = true;
-      setRefreshState(true);
-
-      if (!silent) {
-        list.innerHTML = `<div class="muted">불러오는 중…</div>`;
-        updateAdminStats({ pendingCount: "-", latest: "-" });
-      }
-
-      try {
-        const rows = (await fetchAdminPending({ limit: 50 })) || [];
-        rows.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-
-        updateAdminStats({
-          pendingCount: rows.length,
-          latest: rows.length ? formatKST(rows[0]?.created_at) : "-"
-        });
-
-        if (!rows.length) {
-          list.innerHTML = `<div class="muted">승인 대기 건이 없습니다.</div>`;
-          return;
-        }
-
-        list.innerHTML = rows.map(renderCard).join("");
-        wire(list, me);
-      } catch (error) {
-        console.error("[AAMS][admin] pending 목록 불러오기 실패", error);
-        const message = escapeHtml(error?.message || error || "불러오기 실패");
-        list.innerHTML = `<div class="error">불러오기 실패: ${message}</div>`;
-        updateAdminStats({ pendingCount: "-", latest: "-" });
-      } finally {
-        isLoading = false;
-        setRefreshState(false);
-      }
-    };
-
-    refreshBtn?.addEventListener("click", () => load({ silent: false }));
-
-    await load({ silent: false });
+    await Promise.all([loadSummary(), loadRequests({ silent: false })]);
   } catch (error) {
     console.error("[AAMS][admin] 관리자 메인 초기화 실패", error);
     showAdminInitError(error);
   }
 }
 
+async function hydrateAdmin(me = {}) {
+  if (!me?.id) return me;
+  const needsDetail = !me.rank || !me.unit || !me.contact || !me.serial;
+  if (!needsDetail) return me;
+  try {
+    const full = await fetchPersonnelById(me.id);
+    const enriched = {
+      ...me,
+      rank: full?.rank ?? me.rank,
+      unit: full?.unit ?? me.unit,
+      serial: full?.military_id ?? me.serial,
+      military_id: full?.military_id ?? me.military_id,
+      contact: full?.contact ?? me.contact,
+      position: full?.position ?? me.position,
+      duty: full?.position ?? me.duty
+    };
+    saveMe(enriched);
+    return enriched;
+  } catch (error) {
+    console.warn("[AAMS][admin] 관리자 상세 정보 불러오기 실패", error);
+    return me;
+  }
+}
+
 function adaptStatLabels() {
   const labels = document.querySelectorAll("#me-brief .stat-card .label");
-  if (labels[0]) labels[0].textContent = "승인 대기";
+  if (labels[0]) labels[0].textContent = "대기";
   if (labels[1]) labels[1].textContent = "최근 접수";
 }
 
-function renderCard(r) {
+function wireFilters() {
+  if (!filterWrap) return;
+  filterWrap.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-filter]");
+    if (!btn) return;
+    const filter = btn.getAttribute("data-filter");
+    if (!filter || state.filter === filter) return;
+    state.filter = filter;
+    updateFilterActive();
+    renderRequestList();
+  });
+  updateFilterActive();
+}
+
+function updateFilterActive() {
+  if (!filterWrap) return;
+  filterWrap.querySelectorAll("[data-filter]").forEach((btn) => {
+    const value = btn.getAttribute("data-filter");
+    const isActive = value === state.filter;
+    btn.classList.toggle("is-active", isActive);
+    if (btn.hasAttribute("aria-selected")) {
+      btn.setAttribute("aria-selected", String(isActive));
+    }
+  });
+}
+
+async function loadSummary() {
+  if (!summaryEl) return;
+  summaryEl.innerHTML = `<div class="muted">지표 불러오는 중…</div>`;
+  try {
+    const data = await fetchDashboardSummary();
+    summaryEl.innerHTML = renderSummaryCards(data);
+  } catch (error) {
+    console.error("[AAMS][admin] 요약 불러오기 실패", error);
+    summaryEl.innerHTML = `<div class="error">요약 정보를 불러오지 못했습니다.</div>`;
+  }
+}
+
+async function loadRequests({ silent } = {}) {
+  if (isLoadingRequests) return;
+  isLoadingRequests = true;
+  setRefreshState(true);
+
+  if (!silent && listEl) {
+    listEl.innerHTML = `<div class="muted">요청 정보를 불러오는 중…</div>`;
+  }
+
+  try {
+    const { rows, counts, latestSubmitted } = await fetchAdminRequestOverview({ limit: 80 });
+    rows.sort((a, b) => new Date(b.created_at || b.updated_at || 0) - new Date(a.created_at || a.updated_at || 0));
+    state.requests = rows;
+    state.counts = counts;
+
+    renderCounts(counts);
+    updateFilterActive();
+    renderRequestList();
+
+    updateAdminStats({
+      pendingCount: counts.pending,
+      latest: latestSubmitted ? formatKST(latestSubmitted) : "-"
+    });
+  } catch (error) {
+    console.error("[AAMS][admin] 요청 현황 불러오기 실패", error);
+    const message = escapeHtml(error?.message || error || "불러오기 실패");
+    if (listEl) {
+      listEl.innerHTML = `<div class="error">요청 목록을 불러오지 못했습니다: ${message}</div>`;
+    }
+    renderCounts({ pending: 0, approved: 0, rejected: 0, executed: 0, cancelled: 0, other: 0, total: 0 });
+    updateAdminStats({ pendingCount: "-", latest: "-" });
+  } finally {
+    isLoadingRequests = false;
+    setRefreshState(false);
+  }
+}
+
+function renderCounts(counts) {
+  const targets = {
+    pending: document.getElementById("count-pending"),
+    approved: document.getElementById("count-approved"),
+    rejected: document.getElementById("count-rejected"),
+    executed: document.getElementById("count-executed"),
+    cancelled: document.getElementById("count-cancelled"),
+    all: document.getElementById("count-all")
+  };
+
+  if (targets.pending) targets.pending.textContent = fmtNumber(counts?.pending || 0);
+  if (targets.approved) targets.approved.textContent = fmtNumber(counts?.approved || 0);
+  if (targets.rejected) targets.rejected.textContent = fmtNumber(counts?.rejected || 0);
+  if (targets.executed) targets.executed.textContent = fmtNumber(counts?.executed || 0);
+  if (targets.cancelled) targets.cancelled.textContent = fmtNumber(counts?.cancelled || 0);
+  if (targets.all) targets.all.textContent = fmtNumber(counts?.total || 0);
+
+  if (!overviewEl) return;
+  overviewEl.innerHTML = `
+    <div class="overview-grid">
+      <div class="overview-chip warn">⏳ 대기 ${fmtNumber(counts?.pending || 0)}</div>
+      <div class="overview-chip ok">✅ 승인 ${fmtNumber(counts?.approved || 0)}</div>
+      <div class="overview-chip err">❌ 거부 ${fmtNumber(counts?.rejected || 0)}</div>
+      <div class="overview-chip info">📦 집행 ${fmtNumber(counts?.executed || 0)}</div>
+      <div class="overview-chip muted">⛔ 취소 ${fmtNumber(counts?.cancelled || 0)}</div>
+      <div class="overview-chip neutral">📊 전체 ${fmtNumber(counts?.total || 0)}</div>
+    </div>
+  `;
+}
+
+function renderRequestList() {
+  if (!listEl) return;
+  const filtered = state.requests.filter((row) => matchesFilter(row, state.filter));
+  if (!filtered.length) {
+    listEl.innerHTML = `<div class="muted">해당 조건의 신청이 없습니다.</div>`;
+    return;
+  }
+  listEl.innerHTML = filtered.map(renderRequestCard).join("");
+  wireActions(listEl);
+}
+
+function renderRequestCard(row) {
   const escape = escapeHtml;
-  const idLabel = `REQ-${String(r.id).padStart(4, "0")}`;
-  const typeText = r.type === "ISSUE" ? "불출" : (r.type === "RETURN" ? "불입" : (r.type || "요청"));
-  const statusText = formatStatus(r.status);
-  const statusClass = `status-${(r.status || "pending").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-  const when = formatKST(r.created_at) || "-";
+  const idLabel = `REQ-${String(row.id ?? "").padStart(4, "0")}`;
+  const typeText = formatType(row.type);
+  const statusText = formatStatus(row.status);
+  const statusClass = formatStatusClass(row.status);
+  const requestedAt = formatKST(row.created_at) || "-";
+  const updatedAt = formatKST(row.updated_at) || "-";
+  const scheduledAt = formatKST(row.scheduled_at) || "-";
+  const purpose = row.purpose ? escape(row.purpose) : "-";
+  const location = row.location ? escape(row.location) : "-";
+  const statusReason = row.status_reason ? escape(row.status_reason) : "-";
+
+  const canDecide = ["SUBMITTED", "PENDING", "WAITING", "REQUESTED"].includes(row.status);
+  const canReopen = ["APPROVED", "REJECTED", "CANCELLED"].includes(row.status);
+
+  const actions = [];
+  if (canDecide) {
+    actions.push(`
+      <button class="btn primary" data-act="approve" data-id="${escape(row.id)}">
+        <span class="btn-label">승인</span>
+      </button>
+    `);
+    actions.push(`
+      <button class="btn danger" data-act="reject" data-id="${escape(row.id)}">
+        <span class="btn-label">거부</span>
+      </button>
+    `);
+  } else if (canReopen) {
+    actions.push(`
+      <button class="btn secondary" data-act="reopen" data-id="${escape(row.id)}">
+        <span class="btn-label">재오픈</span>
+      </button>
+    `);
+  }
+
+  actions.push(`
+    <button class="btn ghost detail-btn" data-act="detail" data-id="${escape(row.id)}" aria-expanded="false">
+      <span class="btn-label">상세 보기</span>
+      <span class="chevron">⌄</span>
+    </button>
+  `);
 
   return `
-    <article class="card pending-card admin-card" data-id="${escape(r.id)}">
+    <article class="card pending-card admin-card request-card" data-id="${escape(row.id)}">
       <header class="card-header">
         <div class="card-title">
           <span class="chip">${escape(idLabel)}</span>
@@ -96,35 +259,26 @@ function renderCard(r) {
       </header>
       <div class="card-summary">
         <div class="summary-item">
-          <span class="label">총기</span>
-          <span class="value">${escape(r.weapon_code ?? "-")}</span>
-        </div>
-        <div class="summary-item">
-          <span class="label">탄약</span>
-          <span class="value">${escape(r.ammo_summary ?? "-")}</span>
-        </div>
-        <div class="summary-item">
           <span class="label">신청자</span>
-          <span class="value">${escape(r.requester_name ?? "-")}</span>
+          <span class="value">${escape(row.requester_name ?? "-")}</span>
         </div>
         <div class="summary-item">
           <span class="label">요청 시간</span>
-          <span class="value">${escape(when)}</span>
+          <span class="value">${escape(requestedAt)}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">예정/집행</span>
+          <span class="value">${escape(scheduledAt)}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">최근 갱신</span>
+          <span class="value">${escape(updatedAt)}</span>
         </div>
       </div>
       <footer class="card-actions">
-        <button class="btn primary" data-act="approve" data-id="${escape(r.id)}">
-          <span class="btn-label">승인</span>
-        </button>
-        <button class="btn danger" data-act="reject" data-id="${escape(r.id)}">
-          <span class="btn-label">거부</span>
-        </button>
-        <button class="btn ghost detail-btn" data-act="detail" data-id="${escape(r.id)}" aria-expanded="false">
-          <span class="btn-label">상세 보기</span>
-          <span class="chevron">⌄</span>
-        </button>
+        ${actions.join("")}
       </footer>
-      <div class="card-detail hidden" data-id="${escape(r.id)}">
+      <div class="card-detail hidden" data-id="${escape(row.id)}">
         <div class="detail-grid">
           <div>
             <span class="term">요청 유형</span>
@@ -135,27 +289,51 @@ function renderCard(r) {
             <span class="desc">${escape(statusText)}</span>
           </div>
           <div>
-            <span class="term">신청자</span>
-            <span class="desc">${escape(r.requester_name ?? "-")}</span>
-          </div>
-          <div>
-            <span class="term">요청 시간</span>
-            <span class="desc">${escape(when)}</span>
-          </div>
-          <div>
             <span class="term">총기</span>
-            <span class="desc">${escape(r.weapon_code ?? "-")}</span>
+            <span class="desc">${escape(row.weapon_code ?? "-")}</span>
           </div>
           <div>
             <span class="term">탄약</span>
-            <span class="desc">${escape(r.ammo_summary ?? "-")}</span>
+            <span class="desc">${escape(row.ammo_summary ?? "-")}</span>
+          </div>
+          <div>
+            <span class="term">목적</span>
+            <span class="desc">${purpose}</span>
+          </div>
+          <div>
+            <span class="term">장소</span>
+            <span class="desc">${location}</span>
+          </div>
+          <div>
+            <span class="term">상태 메모</span>
+            <span class="desc">${statusReason}</span>
           </div>
         </div>
       </div>
-    </article>`;
+    </article>
+  `;
 }
 
-function wire(root, me) {
+function matchesFilter(row, filter) {
+  switch (filter) {
+    case "pending":
+      return ["SUBMITTED", "PENDING", "WAITING", "REQUESTED"].includes(row.status);
+    case "approved":
+      return row.status === "APPROVED";
+    case "rejected":
+      return row.status === "REJECTED";
+    case "executed":
+      return row.status === "EXECUTED";
+    case "cancelled":
+      return row.status === "CANCELLED";
+    case "all":
+      return true;
+    default:
+      return true;
+  }
+}
+
+function wireActions(root) {
   root.querySelectorAll('[data-act="detail"]').forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-id");
@@ -171,53 +349,54 @@ function wire(root, me) {
     });
   });
 
-  root.querySelectorAll('[data-act="approve"],[data-act="reject"]').forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const action = btn.getAttribute("data-act");
-      const requestId = btn.getAttribute("data-id");
-      if (!requestId || !action) return;
-
-      let reason = "";
-      if (action === "reject") {
-        const input = prompt("거부 사유를 입력하세요.");
-        if (input === null) return; // 취소
-        reason = input.trim();
-      }
-
-      const label = btn.querySelector(".btn-label");
-      const original = label ? label.textContent : btn.textContent;
-      btn.disabled = true;
-      if (label) label.textContent = action === "approve" ? "승인중…" : "거부중…";
-      else btn.textContent = action === "approve" ? "승인중…" : "거부중…";
-
-      try {
-        await adminAction({ requestId, action, actorId: me?.id ?? 1, reason });
-        if (label) label.textContent = "완료"; else btn.textContent = "완료";
-        setTimeout(() => location.reload(), 600);
-      } catch (error) {
-        console.error(`[AAMS][admin] ${action} 실패`, error);
-        alert(`${action === "approve" ? "승인" : "거부"} 실패: ${error?.message || error}`);
-        btn.disabled = false;
-        if (label) label.textContent = original; else btn.textContent = original;
-      }
-    });
+  root.querySelectorAll('[data-act="approve"],[data-act="reject"],[data-act="reopen"]').forEach((btn) => {
+    btn.addEventListener("click", () => handleAction(btn));
   });
 }
 
-function showAdminInitError(error) {
-  const list = document.getElementById("pending-list");
-  const app = document.getElementById("app");
-  const message = escapeHtml(error?.message || error || "알 수 없는 오류");
+async function handleAction(btn) {
+  const action = btn.getAttribute("data-act");
+  const requestId = btn.getAttribute("data-id");
+  if (!action || !requestId) return;
 
-  if (list) {
-    list.innerHTML = `<div class="error">관리자 화면 초기화 실패: ${message}</div>`;
-    return;
+  let reason = "";
+  if (action === "reject") {
+    const input = prompt("거부 사유를 입력하세요.");
+    if (input === null) return; // 취소
+    reason = input.trim();
   }
 
+  const label = btn.querySelector(".btn-label");
+  const original = label ? label.textContent : btn.textContent;
+  btn.disabled = true;
+  if (label) {
+    label.textContent = action === "approve" ? "승인중…" : action === "reject" ? "거부중…" : "재오픈중…";
+  } else {
+    btn.textContent = action === "approve" ? "승인중…" : action === "reject" ? "거부중…" : "재오픈중…";
+  }
+
+  try {
+    await adminAction({ requestId, action, actorId: state.me?.id ?? 1, reason });
+    await loadRequests({ silent: true });
+  } catch (error) {
+    console.error(`[AAMS][admin] ${action} 실패`, error);
+    alert(`${action === "approve" ? "승인" : action === "reject" ? "거부" : "재오픈"} 실패: ${error?.message || error}`);
+  } finally {
+    btn.disabled = false;
+    if (label) label.textContent = original ?? "";
+    else if (original) btn.textContent = original;
+  }
+}
+
+function showAdminInitError(error) {
+  const message = escapeHtml(error?.message || error || "알 수 없는 오류");
+  if (listEl) {
+    listEl.innerHTML = `<div class="error">관리자 화면 초기화 실패: ${message}</div>`;
+  }
   const container = document.createElement("div");
   container.className = "error";
   container.textContent = `관리자 화면 초기화 실패: ${message}`;
-  app?.appendChild(container);
+  document.getElementById("app")?.appendChild(container);
 }
 
 function updateAdminStats({ pendingCount = "-", latest = "-" } = {}) {
@@ -236,10 +415,26 @@ function formatStatus(status) {
     REQUESTED: "요청됨",
     APPROVED: "승인됨",
     REJECTED: "거부됨",
-    EXECUTED: "집행 완료"
+    EXECUTED: "집행 완료",
+    CANCELLED: "취소됨"
   };
   if (!status) return "대기";
   return map[status] || status;
+}
+
+function formatStatusClass(status) {
+  return `status-${String(status || "pending").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
+
+function formatType(type) {
+  const map = {
+    ISSUE: "불출",
+    DISPATCH: "불출",
+    RETURN: "불입",
+    INCOMING: "불입"
+  };
+  if (!type) return "요청";
+  return map[type] || type;
 }
 
 function formatKST(ts) {
@@ -268,5 +463,48 @@ function escapeSelector(value) {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
     return CSS.escape(raw);
   }
-  return raw.replace(/['"\\]/g, "\\$&").replace(/\s+/g, (segment) => segment.split("").map((ch) => `\\${ch}`).join(""));
+  return raw
+    .replace(/['"\\]/g, "\\$&")
+    .replace(/\s+/g, (segment) => segment.split("").map((ch) => `\\${ch}`).join(""));
 }
+
+function fmtNumber(value) {
+  const num = Number(value);
+  if (Number.isNaN(num)) return String(value ?? 0);
+  return num.toLocaleString("ko-KR");
+}
+
+function setRefreshState(busy) {
+  if (!refreshBtn) return;
+  refreshBtn.disabled = busy;
+  refreshBtn.textContent = busy ? "새로고침중…" : "새로고침";
+}
+
+function renderSummaryCards(data = {}) {
+  const fmt = fmtNumber;
+  return `
+    <div class="metric-grid">
+      <article class="metric-card">
+        <div class="metric-label"><span class="icon">👤</span>인원</div>
+        <div class="metric-value">${fmt(data.person || 0)}</div>
+        <div class="metric-sub">관리자 ${fmt(data.admins || 0)}명</div>
+      </article>
+      <article class="metric-card">
+        <div class="metric-label"><span class="icon">🔫</span>총기</div>
+        <div class="metric-value">${fmt(data.firearm || 0)}</div>
+        <div class="metric-sub">불입 ${fmt(data.inDepot || 0)} · 불출 ${fmt(data.deployed || 0)}</div>
+      </article>
+      <article class="metric-card">
+        <div class="metric-label"><span class="icon">🎯</span>탄약 품목</div>
+        <div class="metric-value">${fmt(data.ammo || 0)}</div>
+        <div class="metric-sub">총 재고 ${fmt(data.totalAmmoQty || 0)} · 저수량 ${fmt(data.lowAmmo || 0)}</div>
+      </article>
+      <article class="metric-card">
+        <div class="metric-label"><span class="icon">⏳</span>승인 대기</div>
+        <div class="metric-value">${fmt(data.pending || 0)}</div>
+        <div class="metric-sub">대기 요청 수 (SUBMITTED)</div>
+      </article>
+    </div>
+  `;
+}
+
