@@ -3,11 +3,7 @@
 export async function initMain() {
   const logo = document.getElementById("logo");
   const btn  = document.getElementById("btn-login");
-  let tap = 0, timer;
-  logo?.addEventListener("click", ()=>{
-    clearTimeout(timer); tap++; timer = setTimeout(()=> tap=0, 1200);
-    if (tap >= 5) { location.hash = "#/admin-login"; tap = 0; }
-  });
+  logo?.addEventListener("click", ()=>{ location.hash = "#/admin-login"; });
   btn?.addEventListener("click", ()=>{ location.hash = "#/fp-user"; });
 }
 
