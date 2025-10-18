@@ -1,21 +1,20 @@
 /* assets/css/tab.css */
 
 /* --- 공통 인증 화면 스타일 --- */
+
 .auth-shell {
   min-height: calc(100dvh - var(--header-height));
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: clamp(32px, 6vw, 80px) clamp(16px, 6vw, 112px);
+  padding: clamp(32px, 5vw, 72px) clamp(16px, 5vw, 96px);
   background: var(--bg);
 }
 
 .entry-screen {
   width: min(520px, 100%);
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: clamp(24px, 6vw, 44px);
+  justify-content: center;
   text-align: center;
 }
 
@@ -26,7 +25,7 @@
 
 .entry-brand {
   margin: 0;
-  font-size: clamp(2.8rem, 6.4vw, 3.6rem);
+  font-size: clamp(2.15rem, 5.2vw, 2.85rem);
   font-weight: 800;
   letter-spacing: 0.08em;
   color: #fff;
@@ -36,48 +35,52 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(10px, 2.2vw, 14px) clamp(22px, 4vw, 30px);
+  padding: clamp(8px, 1.8vw, 12px) clamp(20px, 3.2vw, 26px);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.18);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.entry-tags {
+.entry-identity {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
+  padding: 14px 18px;
+  border-radius: 18px;
+  background: rgba(59, 80, 68, 0.28);
+  border: 1px solid rgba(116, 151, 134, 0.32);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-.entry-tag {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 16px;
-  border-radius: 999px;
-  background: rgba(128, 168, 148, 0.14);
-  border: 1px solid rgba(128, 168, 148, 0.3);
-  color: #d9e5de;
-  font-size: clamp(0.9rem, 2.1vw, 1rem);
-  letter-spacing: 0.04em;
+.entry-identity-main {
+  font-size: clamp(1.05rem, 2.4vw, 1.2rem);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #e6f1eb;
+}
+
+.entry-identity-sub {
+  font-size: clamp(0.9rem, 2vw, 1.05rem);
+  color: #c7d4cd;
 }
 
 .entry-action {
   width: 100%;
-  padding: clamp(22px, 3.8vw, 28px);
-  font-size: clamp(1.35rem, 3.8vw, 1.85rem);
+  padding: clamp(16px, 3vw, 22px);
+  font-size: clamp(1.15rem, 3.2vw, 1.55rem);
   font-weight: 700;
-  border-radius: 24px;
+  border-radius: 20px;
 }
 
 .entry-note {
   margin: 0;
   max-width: 420px;
   color: var(--muted);
-  line-height: 1.55;
+  line-height: 1.5;
   text-align: center;
-  font-size: clamp(0.95rem, 2.2vw, 1.05rem);
+  font-size: clamp(0.88rem, 2vw, 0.98rem);
 }
 
 .entry-footnote {
@@ -93,16 +96,17 @@
   background: rgba(20, 27, 23, 0.96);
   border: 1px solid rgba(86, 116, 97, 0.32);
   border-radius: 20px;
-  padding: clamp(28px, 4vw, 40px);
+  padding: clamp(28px, 3.5vw, 36px);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  align-items: center;
+  gap: 16px;
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.45);
 }
 
 .auth-card.entry-card {
-  width: min(520px, 100%);
-  gap: 24px;
+  width: min(480px, 100%);
+  gap: 16px;
 }
 
 .auth-card.list-card {
