@@ -1,0 +1,16 @@
+<div data-part="page">
+<div id="top"></div>
+<main class="center">
+<img id="logo" src="/assets/img/logo.png" alt="logo" class="logo" />
+<h1>무기·탄약 TAB</h1>
+<p class="muted">지문 인증 후 사용 가능합니다.</p>
+<button id="btn-login" class="primary">로그인</button>
+</main>
+<div id="modal-slot"></div>
+</div>
+<script type="module">
+import { mountHeader } from "/assets/js/util.js";
+import { wireIndexInteractions } from "/assets/js/auth.js";
+await mountHeader();
+await wireIndexInteractions();
+</script>

@@ -1,0 +1,18 @@
+<div data-part="page">
+<div id="top"></div>
+<main class="center">
+<h2>지문 인증</h2>
+<p class="muted">지문 스캔을 시작하려면 아래 버튼을 누르세요.</p>
+<button id="btn-fp" class="primary">지문 스캔</button>
+</main>
+</div>
+<script type="module">
+import { mountHeader } from "/assets/js/util.js";
+import { verifyFingerprint } from "/assets/js/fingerprint.js";
+await mountHeader();
+document.getElementById('btn-fp').addEventListener('click', async ()=>{
+const ok = await verifyFingerprint();
+if (ok) location.hash = '#/user';
+else alert('지문 인증 실패');
+});
+</script>

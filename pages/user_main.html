@@ -1,0 +1,20 @@
+<div data-part="page">
+<div id="top"></div>
+<main class="container">
+<section>
+<h2>집행 대기</h2>
+<div id="pending-list" class="list"></div>
+</section>
+<section>
+<h3>내 정보</h3>
+<div id="me-brief" class="brief"></div>
+</section>
+</main>
+</div>
+<script type="module">
+import { mountHeader, getMe, renderMeBrief } from "/assets/js/util.js";
+import { initUserMain } from "/assets/js/user.js";
+await mountHeader();
+renderMeBrief(getMe());
+initUserMain();
+</script>
