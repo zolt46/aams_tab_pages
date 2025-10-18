@@ -1,1 +1,42 @@
-/* 페이지별 보조 스타일 – 필요 시 확장 */
+/* assets/css/tab.css */
+
+/* 사용자 메인 (#/user) - 집행 대기 목록 아이템 스타일 */
+#pending-list .item .row {
+  justify-content: space-between; /* 제목과 상태 양끝 정렬 */
+  margin-bottom: 6px;
+}
+#pending-list .item .details {
+  border-top: 1px dashed var(--border-color);
+  padding-top: 10px;
+  margin-top: 10px;
+  font-size: 0.9em;
+  color: var(--muted);
+}
+#pending-list .item .details .row {
+  justify-content: flex-end; /* 집행 버튼 오른쪽 정렬 */
+  margin-top: 12px;
+}
+#pending-list .item .btn-exec {
+  padding: 8px 12px; /* 버튼 크기 조정 */
+  font-size: 0.9em;
+}
+
+/* 관리자 메인 (#/admin) - 버튼 정렬 */
+#admin-main .row { /* 버튼들 가로 정렬 */
+  gap: 12px;
+  justify-content: flex-start; /* 왼쪽 정렬 */
+}
+
+/* 로그인 폼 정렬 개선 */
+#admin-login main, #fp-user main, #fp-admin main {
+   display: flex;
+   flex-direction: column;
+   gap: 16px; /* 요소 간 간격 */
+}
+#admin-login label, #fp-user label, #fp-admin label {
+    margin-bottom: 0; /* base.css에서 추가된 margin 제거 */
+}
+#admin-login .muted.s { /* 하단 안내 문구 */
+    text-align: center;
+    margin-top: 12px;
+}

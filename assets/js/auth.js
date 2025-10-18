@@ -16,7 +16,7 @@ import { mountMobileHeader } from "./util.js";
 import { verifyAdminCredential } from "./api.js";
 
 export async function initAdminLogin() {
-  await mountMobileHeader({ title: "관리자 로그인", backTo: "#/" });
+  await mountMobileHeader({ title: "관리자 로그인", pageType: 'login', backTo: "#/" });
   document.getElementById("btn-admin-next")?.addEventListener("click", async ()=>{
     const id = document.getElementById("admin-id")?.value?.trim();
     const pw = document.getElementById("admin-pw")?.value?.trim();

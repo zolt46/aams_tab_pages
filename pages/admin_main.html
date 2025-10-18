@@ -9,8 +9,10 @@
 </section>
 </main>
 <script type="module">
-import { mountMobileHeader } from "./assets/js/util.js";
-import { initAdminMain } from "./assets/js/admin.js";
-await mountMobileHeader({ title: "관리자", backTo: "#/" });
+import { mountMobileHeader } from "../assets/js/util.js"; // 경로 수정
+import { initAdminMain } from "../assets/js/admin.js"; // 경로 수정
+
+// pageType을 'main'으로 지정 (뒤로가기 자동 숨김)
+await mountMobileHeader({ title: "관리자", pageType: 'main' });
 initAdminMain();
 </script>
