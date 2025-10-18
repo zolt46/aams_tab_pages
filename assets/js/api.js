@@ -1,6 +1,8 @@
 // assets/js/api.js
 import { getApiBase } from "./util.js";
 
+const requestDetailCache = new Map();
+
 function apiBase() {
   // same-origin 기본값 (로컬에서 index.html을 같은 서버로 서빙하면 빈 문자열로도 동작)
   return getApiBase() || "";
@@ -56,9 +58,12 @@ export async function fetchMyPendingApprovals(userId) {
   // server.js: GET /api/requests/for_user/:uid
   const all = await _get(`${apiBase()}/api/requests/for_user/${encodeURIComponent(userId)}`);
   // 집행 대기건: APPROVED → 사용자 카드 렌더링과 동일한 포맷으로 변환
-  return (all || [])
+  const rows = (all || [])
     .filter(r => r.status === "APPROVED")
     .map(toRequestRow);
+
+  await enrichRequestsWithItems(rows);
+  return rows;
 }
 export { fetchMyPendingApprovals as fetchUserPending };
 
@@ -111,11 +116,18 @@ export async function fetchAdminPending({ limit = 30 } = {}) {
   const rows = Array.isArray(data) ? data : (data.rows || []);
   // 상태가 SUBMITTED/PENDING/WAITING/REQUESTED 인 것만 대기건으로 간주
   const pending = rows.filter(r => ["SUBMITTED","PENDING","WAITING","REQUESTED"].includes(r.status));
-  return pending.map(toRequestRow);
+  const mapped = pending.map(toRequestRow);
+  await enrichRequestsWithItems(mapped);
+  return mapped;
 }
 
 // 사용자/관리자 공통 표준화
 function toRequestRow(r){
+  const submittedAt = r.submitted_at || r.requested_at || r.created_at || null;
+  const approvedAt = r.approved_at || null;
+  const executedAt = r.executed_at || null;
+  const rejectedAt = r.rejected_at || null;
+  const updatedAt = r.updated_at || approvedAt || executedAt || rejectedAt || r.created_at || null;
   return {
     id: r.id,
     type: r.request_type || r.type,
@@ -125,8 +137,12 @@ function toRequestRow(r){
       ? r.ammo_items.map(it => `${it.caliber || it.type}×${it.qty}`).join(", ")
       : r.ammo_summary || null,
     requester_name: r.requester_name || r.requester?.name || r.user?.name,
-    created_at: r.created_at || r.requested_at || r.submitted_at || r.approved_at || r.updated_at,
-    updated_at: r.updated_at || r.approved_at || r.rejected_at || r.executed_at || r.created_at,
+    created_at: r.created_at || submittedAt || approvedAt || updatedAt,
+    requested_at: submittedAt,
+    approved_at: approvedAt,
+    executed_at: executedAt,
+    rejected_at: rejectedAt,
+    updated_at: updatedAt,
     scheduled_at: r.scheduled_at || r.schedule_at || null,
     purpose: r.purpose || r.memo || r.notes || "",
     location: r.location || r.site || r.place || "",
@@ -139,6 +155,25 @@ function toRequestRow(r){
 export async function fetchPersonnelById(id) {
   if (!id) throw new Error("id required");
   return _get(`${apiBase()}/api/personnel/${encodeURIComponent(id)}`);
+}
+
+export async function fetchRequestDetail(id, { force = false } = {}) {
+  if (!id) throw new Error("id required");
+  const cacheKey = String(id);
+  if (!force && requestDetailCache.has(cacheKey)) {
+    return requestDetailCache.get(cacheKey);
+  }
+  const detail = await _get(`${apiBase()}/api/requests/${encodeURIComponent(id)}`);
+  requestDetailCache.set(cacheKey, detail);
+  return detail;
+}
+
+export function invalidateRequestDetail(id) {
+  if (id === undefined || id === null) {
+    requestDetailCache.clear();
+    return;
+  }
+  requestDetailCache.delete(String(id));
 }
 
 export async function fetchDashboardSummary() {
@@ -196,6 +231,8 @@ export async function fetchAdminRequestOverview({ limit = 60 } = {}) {
   const rows = Array.isArray(data) ? data : (data?.rows || []);
   const mapped = rows.map(toRequestRow);
 
+ await enrichRequestsWithItems(mapped);
+
   const buckets = {
     pending: [],
     approved: [],
@@ -241,9 +278,136 @@ export async function fetchAdminRequestOverview({ limit = 60 } = {}) {
   };
 
   const latestSubmitted = buckets.pending
-    .map((row) => row.created_at || row.updated_at)
+    .map((row) => row.requested_at || row.created_at || row.updated_at)
     .filter(Boolean)
     .sort((a, b) => new Date(b) - new Date(a))[0] || null;
 
-  return { rows: mapped, buckets, counts, latestSubmitted };
+  const latestProcessed = mapped
+    .filter((row) => ["APPROVED", "REJECTED", "EXECUTED", "CANCELLED"].includes(row.status))
+    .map((row) => row.updated_at || row.approved_at || row.executed_at || row.rejected_at)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b) - new Date(a))[0] || null;
+
+  return { rows: mapped, buckets, counts, latestSubmitted, latestProcessed };
+}
+
+function formatFirearmItem(item = {}) {
+  const number = item.firearm_number || item.serial || item.code || item.firearm_id;
+  const type = item.firearm_type || item.weapon_type || item.type;
+  if (number && type) return `${type} ${number}`.trim();
+  return number || type || "";
+}
+
+function mapAmmoItem(item = {}) {
+  const qty = item.quantity ?? item.qty ?? item.amount ?? null;
+  const unit = item.unit || item.unit_label || (qty !== null && qty !== undefined ? "발" : "");
+  const caliber = item.ammo_name || item.ammo_label || item.caliber || item.description || item.ammo_category || item.name || "";
+  const type = item.ammo_category || item.category || item.type || "";
+  return {
+    caliber,
+    type,
+    name: item.ammo_name || item.name || caliber || type || "탄약",
+    qty,
+    unit
+  };
+}
+
+function formatAmmoItemLabel(item = {}) {
+  const base = item.caliber || item.name || item.type || "탄약";
+  const parts = [base];
+  if (item.qty !== undefined && item.qty !== null && item.qty !== "") {
+    parts.push(`×${item.qty}`);
+  }
+  if (item.unit) {
+    parts.push(item.unit);
+  }
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+async function enrichRequestsWithItems(rows = []) {
+  if (!Array.isArray(rows) || !rows.length) return rows;
+  const ids = rows
+    .map((row) => row?.id)
+    .filter((id) => id !== undefined && id !== null);
+  if (!ids.length) return rows;
+
+  const detailMap = await fetchRequestDetails(ids);
+
+  rows.forEach((row) => {
+    const detail = detailMap.get(String(row.id));
+    if (!detail) return;
+
+    const request = detail.request || {};
+    const items = Array.isArray(detail.items) ? detail.items : [];
+    const firearms = items.filter((item) => item.item_type === "FIREARM");
+    const ammoItemsRaw = items.filter((item) => item.item_type === "AMMO");
+
+    if (!row.weapon_code && firearms.length) {
+      const labels = firearms.map(formatFirearmItem).filter(Boolean);
+      if (labels.length) {
+        row.weapon_code = labels.join(", ");
+        row.weapon_summary = row.weapon_summary || row.weapon_code;
+      }
+    }
+
+    const ammoItems = ammoItemsRaw.map(mapAmmoItem).filter((item) => item.name || item.caliber || item.type);
+    if (ammoItems.length) {
+      row.ammo_items = ammoItems;
+      if (!row.ammo_summary) {
+        row.ammo_summary = ammoItems.map(formatAmmoItemLabel).join(", ");
+      }
+    }
+
+    if (!row.status_reason && request.status_reason) {
+      row.status_reason = request.status_reason;
+    }
+    if (!row.purpose && request.purpose) {
+      row.purpose = request.purpose;
+    }
+    if (!row.location && request.location) {
+      row.location = request.location;
+    }
+
+    row.requested_at = row.requested_at || request.submitted_at || request.requested_at || request.created_at || row.created_at;
+    row.approved_at = row.approved_at || request.approved_at || null;
+    row.executed_at = row.executed_at || request.executed_at || null;
+    row.rejected_at = row.rejected_at || request.rejected_at || null;
+    row.updated_at = row.updated_at || request.updated_at || row.approved_at || row.executed_at || row.rejected_at || null;
+    row.created_at = row.created_at || request.created_at || row.requested_at || row.updated_at;
+
+    row.raw = {
+      ...(row.raw || {}),
+      request,
+      items,
+      ammo_items: ammoItems,
+      firearms
+    };
+  });
+
+  return rows;
+}
+
+async function fetchRequestDetails(ids, { concurrency = 4 } = {}) {
+  const uniqueIds = Array.from(new Set(ids.map((id) => String(id))));
+  const results = new Map();
+  if (!uniqueIds.length) return results;
+
+  const queue = [...uniqueIds];
+  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, () => (async () => {
+    while (queue.length) {
+      const nextId = queue.shift();
+      if (!nextId) continue;
+      try {
+        const detail = await fetchRequestDetail(nextId);
+        if (detail) {
+          results.set(nextId, detail);
+        }
+      } catch (error) {
+        console.warn("[AAMS][api] 요청 상세 불러오기 실패", error);
+      }
+    }
+  })());
+
+  await Promise.all(workers);
+  return results;
 }

@@ -4,6 +4,17 @@ import { getMe, renderMeBrief, mountMobileHeader } from "./util.js";
 
 const numberFormatter = new Intl.NumberFormat("ko-KR");
 
+function getLatestApprovalTimestamp(row = {}) {
+  return row?.approved_at
+    || row?.updated_at
+    || row?.raw?.approved_at
+    || row?.raw?.updated_at
+    || row?.raw?.request?.approved_at
+    || row?.raw?.request?.updated_at
+    || row?.created_at
+    || row?.requested_at;
+}
+
 export async function initUserMain() {
   await mountMobileHeader({ title: "사용자", pageType: "main", showLogout: true });
 
@@ -51,13 +62,13 @@ export async function initUserMain() {
 
   try {
     const rows = await fetchUserPending(me.id) || [];
-    rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    rows.sort((a, b) => new Date(getLatestApprovalTimestamp(b) || 0) - new Date(getLatestApprovalTimestamp(a) || 0));
 
     if (toggleBtn) toggleBtn.disabled = !rows.length;
 
     updateDashboardStats({
       pendingCount: rows.length,
-      latest: rows.length ? formatKST(rows[0]?.created_at) : "-"
+      latest: rows.length ? formatKST(getLatestApprovalTimestamp(rows[0])) : "-"
     });
 
     if (!rows?.length) {
@@ -80,7 +91,8 @@ function renderCard(r) {
   const idValue = String(requestId ?? "");
   const idLabel = idValue ? `REQ-${idValue.padStart(4, "0")}` : "REQ----";
   const typeText = r.type === "ISSUE" ? "불출" : (r.type === "RETURN" ? "불입" : (r.type || "요청"));
-  const when = formatKST(r.created_at) || "-";
+  const requestedAt = formatKST(r.requested_at || r.created_at) || "-";
+  const approvedAt = formatKST(getLatestApprovalTimestamp(r)) || "-";
   const statusLabel = r.status ?? "대기";
   const statusClass = `status-${sanitizeToken(r.status || "pending")}`;
   const ammoSummary = formatAmmoSummary(r);
@@ -111,7 +123,11 @@ function renderCard(r) {
         </div>
         <div class="summary-item">
           <span class="label">요청 시간</span>
-          <span class="value">${escapeHtml(when)}</span>
+          <span class="value">${escapeHtml(requestedAt)}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">승인 시간</span>
+          <span class="value">${escapeHtml(approvedAt)}</span>
         </div>
       </div>
       <footer class="card-actions">
@@ -139,7 +155,11 @@ function renderCard(r) {
           </div>
           <div>
             <span class="term">요청 시간</span>
-            <span class="desc">${escapeHtml(when)}</span>
+            <span class="desc">${escapeHtml(requestedAt)}</span>
+          </div>
+          <div>
+            <span class="term">승인 시간</span>
+            <span class="desc">${escapeHtml(approvedAt)}</span>
           </div>
           <div>
             <span class="term">총기</span>

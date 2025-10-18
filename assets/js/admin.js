@@ -2,7 +2,8 @@ import {
   adminAction,
   fetchAdminRequestOverview,
   fetchDashboardSummary,
-  fetchPersonnelById
+  fetchPersonnelById,
+  invalidateRequestDetail
 } from "./api.js";
 import { getMe, mountMobileHeader, renderMeBrief, saveMe } from "./util.js";
 
@@ -27,6 +28,8 @@ let summaryEl;
 let overviewEl;
 let filterWrap;
 let isLoadingRequests = false;
+
+const processedStatuses = ["APPROVED", "REJECTED", "EXECUTED", "CANCELLED"];
 
 export async function initAdminMain() {
   try {
@@ -201,13 +204,18 @@ async function loadRequests({ silent } = {}) {
   isLoadingRequests = true;
   setRefreshState(true);
 
+  if (!silent) {
+    invalidateRequestDetail();
+  }
+
+
   if (!silent && listEl) {
     listEl.innerHTML = `<div class="muted">요청 정보를 불러오는 중…</div>`;
   }
 
   try {
-    const { rows, counts, latestSubmitted } = await fetchAdminRequestOverview({ limit: 80 });
-    rows.sort((a, b) => new Date(b.created_at || b.updated_at || 0) - new Date(a.created_at || a.updated_at || 0));
+    const { rows, counts, latestSubmitted, latestProcessed } = await fetchAdminRequestOverview({ limit: 80 });
+    rows.sort((a, b) => new Date(getSortTimestamp(b)) - new Date(getSortTimestamp(a)));
     state.requests = rows;
     state.counts = counts;
 
@@ -215,9 +223,10 @@ async function loadRequests({ silent } = {}) {
     updateFilterActive();
     renderRequestList();
 
+    const latestTime = latestProcessed || latestSubmitted;
     updateAdminStats({
       pendingCount: counts.pending,
-      latest: latestSubmitted ? formatKST(latestSubmitted) : "-"
+      latest: latestTime ? formatKST(latestTime) : "-"
     });
   } catch (error) {
     console.error("[AAMS][admin] 요청 현황 불러오기 실패", error);
@@ -280,12 +289,16 @@ function renderRequestCard(row) {
   const typeText = formatType(row.type);
   const statusText = formatStatus(row.status);
   const statusClass = formatStatusClass(row.status);
-  const requestedAt = formatKST(row.created_at) || "-";
+  const requestedAt = formatKST(row.requested_at || row.created_at) || "-";
+  const processedAt = getProcessedTimestamp(row);
+  const approvedAt = processedAt ? formatKST(processedAt) : "-";
   const updatedAt = formatKST(row.updated_at) || "-";
   const scheduledAt = formatKST(row.scheduled_at) || "-";
   const purpose = row.purpose ? escape(row.purpose) : "-";
   const location = row.location ? escape(row.location) : "-";
   const statusReason = row.status_reason ? escape(row.status_reason) : "-";
+  const ammoDetailList = renderAmmoDetailList(row);
+  const firearmDetailList = renderFirearmDetailList(row);
 
   const canDecide = ["SUBMITTED", "PENDING", "WAITING", "REQUESTED"].includes(row.status);
   const canReopen = ["APPROVED", "REJECTED", "CANCELLED"].includes(row.status);
@@ -335,6 +348,10 @@ function renderRequestCard(row) {
           <span class="value">${escape(requestedAt)}</span>
         </div>
         <div class="summary-item">
+          <span class="label">최근 처리</span>
+          <span class="value">${escape(approvedAt)}</span>
+        </div>
+        <div class="summary-item">
           <span class="label">예정/집행</span>
           <span class="value">${escape(scheduledAt)}</span>
         </div>
@@ -358,11 +375,13 @@ function renderRequestCard(row) {
           </div>
           <div>
             <span class="term">총기</span>
-            <span class="desc">${escape(row.weapon_code ?? "-")}</span>
+            <span class="desc">${escape(row.weapon_code ?? row.weapon_summary ?? "-")}</span>
+            ${firearmDetailList}
           </div>
           <div>
             <span class="term">탄약</span>
             <span class="desc">${escape(row.ammo_summary ?? "-")}</span>
+            ${ammoDetailList}
           </div>
           <div>
             <span class="term">목적</span>
@@ -445,6 +464,7 @@ async function handleAction(btn) {
 
   try {
     await adminAction({ requestId, action, actorId: state.me?.id ?? 1, reason });
+    invalidateRequestDetail(requestId);
     await loadRequests({ silent: true });
   } catch (error) {
     console.error(`[AAMS][admin] ${action} 실패`, error);
@@ -471,10 +491,19 @@ function showAdminInitError(error) {
 
 function updateAdminStats({ pendingCount = "-", latest = "-" } = {}) {
   const pendingEl = document.getElementById("pending-count");
-  if (pendingEl) pendingEl.textContent = pendingCount;
+  if (pendingEl) pendingEl.textContent = pendingCount === "-" ? "-" : fmtNumber(pendingCount);
 
   const latestEl = document.getElementById("latest-request");
-  if (latestEl) latestEl.textContent = latest;
+  if (latestEl) latestEl.textContent = latest && latest !== "-" ? latest : "-";
+}
+
+function getSortTimestamp(row = {}) {
+  return row.updated_at || row.approved_at || row.created_at || 0;
+}
+
+function getProcessedTimestamp(row = {}) {
+  if (!row || !processedStatuses.includes(row.status)) return null;
+  return row.updated_at || row.approved_at || row.executed_at || row.rejected_at || null;
 }
 
 function formatStatus(status) {
@@ -544,6 +573,44 @@ function fmtNumber(value) {
   if (Number.isNaN(num)) return String(value ?? 0);
   return num.toLocaleString("ko-KR");
 }
+
+function renderAmmoDetailList(row = {}) {
+  const escape = escapeHtml;
+  const items = Array.isArray(row.ammo_items) ? row.ammo_items
+    : Array.isArray(row.raw?.ammo_items) ? row.raw.ammo_items : [];
+  if (!items.length) return "";
+  const list = items.map((item) => `<li>${escape(formatAmmoLabel(item))}</li>`).join("");
+  return `<ul class="ammo-list">${list}</ul>`;
+}
+
+function renderFirearmDetailList(row = {}) {
+  const escape = escapeHtml;
+  const items = Array.isArray(row.raw?.firearms) ? row.raw.firearms : [];
+  if (!items.length) return "";
+  const list = items.map((item) => {
+    const label = formatFirearmLabel(item);
+    return label ? `<li>${escape(label)}</li>` : "";
+  }).filter(Boolean).join("");
+  return list ? `<ul class="ammo-list">${list}</ul>` : "";
+}
+
+function formatAmmoLabel(item = {}) {
+  const name = item.name || item.caliber || item.type || "탄약";
+  const qty = item.qty ?? item.quantity ?? "";
+  const unit = item.unit || "";
+  const parts = [name];
+  if (qty !== undefined && qty !== null && qty !== "") parts.push(`×${qty}`);
+  if (unit) parts.push(unit);
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function formatFirearmLabel(item = {}) {
+  const number = item.firearm_number || item.serial || item.code || item.firearm_id;
+  const type = item.firearm_type || item.weapon_type || item.type;
+  if (number && type) return `${type} ${number}`.trim();
+  return number || type || "";
+}
+
 
 function setRefreshState(busy) {
   if (!refreshBtn) return;
