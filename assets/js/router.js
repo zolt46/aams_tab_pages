@@ -122,8 +122,30 @@ export async function mountRoute(){
   }
 }
 
+// ★ 모든 화면에서 로고 5번 탭 시 관리자 로그인으로
+function setupHiddenAdminShortcut() {
+  let taps = 0;
+  let timer = null;
+
+  const reset = () => { taps = 0; clearTimeout(timer); timer = null; };
+
+  // 캡처링 단계로 걸어서 겹겹이 감싼 요소/버블링 이슈 회피
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest?.('#logo, .entry-logo');
+    if (!el) return;
+
+    taps += 1;
+    if (!timer) timer = setTimeout(reset, 2000); // 2초 이내 5번
+    if (taps >= 5) {
+      reset();
+      location.hash = '#/admin-login';
+    }
+  }, true);
+}
+
 // ...
 export function bootstrap(){
+  setupHiddenAdminShortcut();
   const normalized = normalizeHash(location.hash);
   if (normalized !== location.hash){
     safeReplaceHash(normalized, { addHistory: !location.hash });

@@ -22,6 +22,7 @@
 .entry-logo {
   width: clamp(250px, 28vw, 176px);
   height: auto;
+  pointer-events: auto;
   cursor: pointer;
 }
 
