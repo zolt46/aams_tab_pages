@@ -9,34 +9,69 @@ import { assertApiBaseHealthy } from "./util.js";
 // 라우트별: 1) 주입할 파일 후보, 2) 주입 후 실행할 init 함수
 const routes = {
   // "#/": { candidates:["./pages/index.html","./index_body.html"], init: Auth.initMain }, // ❌ 수정 전
-  "#/admin-login": { candidates:["./pages/admin_login.html"], init: Auth.initAdminLogin },
-  "#/fp-user":     { candidates:["./pages/fp_user.html"],     init: FP.initFpUser },
-  "#/fp-admin":    { candidates:["./pages/fp_admin.html"],    init: FP.initFpAdmin },
-  "#/user":        { candidates:["./pages/user_main.html"],   init: UserPage.initUserMain },
-  "#/admin":       { candidates:["./pages/admin_main.html"],  init: AdminPage.initAdminMain },
+  "#/":            { candidates:["./index_body.html", "./pages/index.html"], init: Auth.initMain },
+  "#/admin-login": { candidates:["./pages/admin_login.html", "./admin_login.html"], init: Auth.initAdminLogin },
+  "#/fp-user":     { candidates:["./pages/fp_user.html", "./fp_user.html"],     init: FP.initFpUser },
+  "#/fp-admin":    { candidates:["./pages/fp_admin.html", "./fp_admin.html"],    init: FP.initFpAdmin },
+  "#/user":        { candidates:["./pages/user_main.html", "./user_main.html"],   init: UserPage.initUserMain },
+  "#/admin":       { candidates:["./pages/admin_main.html", "./admin_main.html"],  init: AdminPage.initAdminMain },
 };
 
 const DEFAULT_ROUTE = "#/";
 
-function resolveRoute(rawHash){
-  const requested = rawHash?.trim() || DEFAULT_ROUTE;
-
-  if (routes[requested]){
-    return { key: requested, config: routes[requested] };
+function normalizeHash(rawHash){
+  if (!rawHash) return DEFAULT_ROUTE;
+  const trimmed = rawHash.trim();
+  if (!trimmed || trimmed === "#" || trimmed === DEFAULT_ROUTE) {
+    return DEFAULT_ROUTE;
   }
 
-  if (requested !== DEFAULT_ROUTE){
-    console.warn(`[AAMS] 알 수 없는 라우트(${requested}) -> ${DEFAULT_ROUTE}로 대체합니다.`);
-    // 알 수 없는 라우트로 진입 시 URL도 홈으로 교체해두면 새로고침/공유 시 안전
-    try { location.hash = DEFAULT_ROUTE; } catch {}
+  if (trimmed.startsWith("#/")) {
+    return trimmed;
+  }
+
+  const withoutPrefix = trimmed.replace(/^#?\/?/, "");
+  return withoutPrefix ? `#/${withoutPrefix}` : DEFAULT_ROUTE;
+}
+
+function safeReplaceHash(nextHash, { addHistory = false } = {}){
+  if (location.hash === nextHash) return;
+  try {
+    if (!addHistory && typeof history?.replaceState === "function") {
+      history.replaceState(null, "", nextHash);
+    } else {
+      location.hash = nextHash;
+    }
+  } catch {
+    try { location.hash = nextHash; } catch {}
+  }
+}
+
+function resolveRoute(rawHash){
+  const requested = normalizeHash(rawHash);
+  if (requested !== rawHash) {
+    safeReplaceHash(requested);
+  }
+
+  const matched = routes[requested];
+  if (matched) {
+    return { key: requested, config: matched };
   }
 
   const fallback = routes[DEFAULT_ROUTE];
   if (!fallback){
     return { key: requested, config: null };
   }
+
+  if (requested !== DEFAULT_ROUTE){
+    console.warn(`[AAMS] 알 수 없는 라우트(${rawHash || "(빈 값)"}) -> ${DEFAULT_ROUTE}로 대체합니다.`);
+    safeReplaceHash(DEFAULT_ROUTE);
+  }
+
   return { key: DEFAULT_ROUTE, config: fallback };
 }
+
+
 
 async function loadFirst(paths){
   let lastErr;
@@ -81,10 +116,15 @@ export async function mountRoute(){
 
 // ...
 export function bootstrap(){
+  const normalized = normalizeHash(location.hash);
+  if (normalized !== location.hash){
+    safeReplaceHash(normalized, { addHistory: !location.hash });
+  }
+
   addEventListener("hashchange", mountRoute);
   addEventListener("DOMContentLoaded", async () => {
     await assertApiBaseHealthy(); // ⬅️ 첫 로드에 API_BASE 건강 체크
-    mountRoute();
+    await mountRoute();
   });
-  if (!location.hash) location.hash = "#/";
+
 }
