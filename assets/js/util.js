@@ -67,7 +67,7 @@ export async function assertApiBaseHealthy() {
   const base = getApiBase();
   if (!base) return; // 프록시 환경일 수 있음
   try {
-    const r = await fetch(base + "/health", { credentials: "include" });
+    const r = await fetch(base + "/health");
     if (!r.ok) throw new Error(String(r.status));
   } catch (e) {
     showTopBanner(

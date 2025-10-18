@@ -7,17 +7,22 @@ function apiBase() {
 }
 
 async function _get(url) {
-  const r = await fetch(url); // ⬅️ 옵션 객체 전체 또는 credentials 라인 삭제
+  const r = await fetch(url); // credentials 옵션 제거
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
   return r.json();
 }
+
 async function _post(url, body) {
   const r = await fetch(url, {
     method: "POST",
-    // ⬅️ credentials 라인 삭제
+    // credentials 옵션 제거
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {})
   });
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+  // ▼▼▼ [수정] 이 부분이 복원되어야 합니다 ▼▼▼
+  try { return await r.json(); } catch { return { ok: true }; }
+}
 
 /** =========================
  * 인원(personnel)
