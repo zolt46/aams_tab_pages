@@ -152,6 +152,12 @@ export function getMe() {
   try { return JSON.parse(localStorage.getItem("AAMS_ME") || "null") || {}; }
   catch { return {}; }
 }
+
+export function saveMe(me = {}) {
+  try { localStorage.setItem("AAMS_ME", JSON.stringify(me)); }
+  catch { /* noop */ }
+}
+
 export function renderMeBrief(me = {}) {
   const box = document.getElementById("me-brief");
   if (!box) return;
@@ -169,11 +175,11 @@ export function renderMeBrief(me = {}) {
   }
 
   const displayName = `${me.rank ? `${escape(me.rank)} ` : ""}${escape(me.name || "사용자")}`.trim();
-  const unit = escape(me.unit || "-");
-  const serial = escape(me.serial || me.military_id || "-");
+  const unit = escape(me.unit || me.unit_name || "-");
+  const serial = escape(me.serial || me.military_id || me.militaryId || me.service_no || "-");
   const weapon = escape(me.weapon_name || me.weapon_code || me.weapon || "-");
-  const duty = escape(me.duty || me.role_label || me.role || "-");
-  const contact = escape(me.phone || me.contact || "-");
+  const duty = escape(me.duty || me.position || me.role_label || me.role || "-");
+  const contact = escape(me.phone || me.contact || me.tel || "-");
 
   box.innerHTML = `
     <div class="overview">

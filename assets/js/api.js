@@ -116,13 +116,132 @@ export async function fetchAdminPending({ limit = 30 } = {}) {
 function toRequestRow(r){
   return {
     id: r.id,
-    type: r.type,                         // ISSUE | RETURN | ...
+    type: r.request_type || r.type,
     status: r.status,
     weapon_code: r.weapon_code || r.weapon?.code,
     ammo_summary: Array.isArray(r.ammo_items) && r.ammo_items.length
       ? r.ammo_items.map(it => `${it.caliber || it.type}×${it.qty}`).join(", ")
       : r.ammo_summary || null,
     requester_name: r.requester_name || r.requester?.name || r.user?.name,
-    created_at: r.created_at || r.requested_at || r.approved_at || r.updated_at
+    created_at: r.created_at || r.requested_at || r.submitted_at || r.approved_at || r.updated_at,
+    updated_at: r.updated_at || r.approved_at || r.rejected_at || r.executed_at || r.created_at,
+    scheduled_at: r.scheduled_at || r.schedule_at || null,
+    purpose: r.purpose || r.memo || r.notes || "",
+    location: r.location || r.site || r.place || "",
+    approver_id: r.approver_id || null,
+    requester_id: r.requester_id,
+    status_reason: r.status_reason || r.reason || "",
+    raw: r
   };
+}
+export async function fetchPersonnelById(id) {
+  if (!id) throw new Error("id required");
+  return _get(`${apiBase()}/api/personnel/${encodeURIComponent(id)}`);
+}
+
+export async function fetchDashboardSummary() {
+  const base = apiBase();
+  const [health, personnel, firearms, ammo, submitted] = await Promise.all([
+    _get(`${base}/health/db`).catch(() => null),
+    _get(`${base}/api/personnel`).catch(() => []),
+    _get(`${base}/api/firearms`).catch(() => []),
+    _get(`${base}/api/ammunition`).catch(() => []),
+    _get(`${base}/api/requests?status=SUBMITTED`).catch(() => [])
+  ]);
+
+  const personCount = Array.isArray(personnel) ? personnel.length : 0;
+  const firearmCount = health?.firearms_total ?? (Array.isArray(firearms) ? firearms.length : 0);
+  const ammoCount = health?.ammo_total ?? (Array.isArray(ammo) ? ammo.length : 0);
+
+  const admins = Array.isArray(personnel) ? personnel.filter((p) => p.is_admin).length : 0;
+  let inDepot = 0, deployed = 0, maint = 0;
+  if (Array.isArray(firearms)) {
+    const statusMap = firearms.reduce((acc, row) => {
+      const key = row.status || row.firearm_status || "";
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    inDepot = statusMap["불입"] || statusMap["IN_DEPOT"] || 0;
+    deployed = statusMap["불출"] || statusMap["DEPLOYED"] || 0;
+    maint = statusMap["정비중"] || statusMap["MAINTENANCE"] || statusMap["MAINT"] || 0;
+  }
+
+  let totalAmmoQty = 0, lowAmmo = 0;
+  if (Array.isArray(ammo)) {
+    totalAmmoQty = ammo.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+    lowAmmo = ammo.filter((row) => (Number(row.quantity) || 0) <= 20).length;
+  }
+
+  const pending = Array.isArray(submitted) ? submitted.length : 0;
+
+  return {
+    person: personCount,
+    firearm: firearmCount,
+    ammo: ammoCount,
+    admins,
+    inDepot,
+    deployed,
+    maint,
+    totalAmmoQty,
+    lowAmmo,
+    pending
+  };
+}
+
+export async function fetchAdminRequestOverview({ limit = 60 } = {}) {
+  const base = apiBase();
+  const data = await _get(`${base}/api/requests?limit=${limit}`);
+  const rows = Array.isArray(data) ? data : (data?.rows || []);
+  const mapped = rows.map(toRequestRow);
+
+  const buckets = {
+    pending: [],
+    approved: [],
+    rejected: [],
+    executed: [],
+    cancelled: [],
+    other: []
+  };
+
+  mapped.forEach((row) => {
+    switch (row.status) {
+      case "SUBMITTED":
+      case "PENDING":
+      case "WAITING":
+      case "REQUESTED":
+        buckets.pending.push(row);
+        break;
+      case "APPROVED":
+        buckets.approved.push(row);
+        break;
+      case "REJECTED":
+        buckets.rejected.push(row);
+        break;
+      case "EXECUTED":
+        buckets.executed.push(row);
+        break;
+      case "CANCELLED":
+        buckets.cancelled.push(row);
+        break;
+      default:
+        buckets.other.push(row);
+    }
+  });
+
+  const counts = {
+    pending: buckets.pending.length,
+    approved: buckets.approved.length,
+    rejected: buckets.rejected.length,
+    executed: buckets.executed.length,
+    cancelled: buckets.cancelled.length,
+    other: buckets.other.length,
+    total: mapped.length
+  };
+
+  const latestSubmitted = buckets.pending
+    .map((row) => row.created_at || row.updated_at)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b) - new Date(a))[0] || null;
+
+  return { rows: mapped, buckets, counts, latestSubmitted };
 }
