@@ -1,17 +1,19 @@
 <!doctype html>
 <html lang="ko">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>AAMS TAB</title>
-<link rel="stylesheet" href="./assets/css/base.css" />
-<link rel="stylesheet" href="./assets/css/tab.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AAMS TAB</title>
+  <link rel="stylesheet" href="./assets/css/base.css" />
+  <link rel="stylesheet" href="./assets/css/tab.css" />
+  <!-- ⬇️ 반드시 라우터/모듈보다 먼저 -->
+  <script src="./config.js"></script>
 </head>
 <body>
-<div id="app"></div>
-<script type="module">
-import { bootstrap } from "./assets/js/router.js";
-bootstrap();
-</script>
+  <div id="app"></div>
+  <script type="module">
+    import { bootstrap } from "./assets/js/router.js";
+    bootstrap();
+  </script>
 </body>
 </html>

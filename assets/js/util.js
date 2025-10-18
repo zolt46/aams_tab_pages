@@ -12,7 +12,21 @@ export async function mountMobileHeader({ title, backTo="#/", homeTo="#/" } = {}
   document.getElementById("m-home") ?.addEventListener("click", ()=>{ location.hash = homeTo; });
 }
 
-export function getApiBase(){ return localStorage.getItem("AAMS_API_BASE") || ""; }
+export function getApiBase() {
+  // 1) 전역 설정 파일 (권장)
+  if (window.AAMS_CONFIG?.API_BASE) return window.AAMS_CONFIG.API_BASE;
+
+  // 2) <meta name="aams-api-base" content="..."> 로도 주입 가능 (선택)
+  const meta = document.querySelector('meta[name="aams-api-base"]')?.content;
+  if (meta) return meta;
+
+  // 3) (옵션) 이전에 쓰던 localStorage 값 지원
+  const saved = localStorage.getItem("AAMS_API_BASE");
+  if (saved) return saved;
+
+  // 4) 기본값: 같은 출처 (리버스 프록시로 /api 붙여놓은 경우)
+  return "";
+}
 export function getMe(){ try { return JSON.parse(localStorage.getItem("AAMS_ME")||"null") || {}; } catch { return {}; } }
 export function renderMeBrief(me){
   const box = document.getElementById("me-brief"); if (!box) return;
