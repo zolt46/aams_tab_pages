@@ -2,65 +2,72 @@ import { adminAction, fetchAdminPending } from "./api.js";
 import { getMe, mountMobileHeader, renderMeBrief } from "./util.js";
 
 export async function initAdminMain() {
-  await mountMobileHeader({ title: "관리자", pageType: "main", showLogout: true });
+  try {
+    await mountMobileHeader({ title: "관리자", pageType: "main", showLogout: true });
 
-  const me = getMe();
-  renderMeBrief(me);
-  adaptStatLabels();
+    const me = getMe();
+    renderMeBrief(me);
+    adaptStatLabels();
 
-  const list = document.getElementById("pending-list");
-  const refreshBtn = document.getElementById("pending-refresh");
+    const list = document.getElementById("pending-list");
+    const refreshBtn = document.getElementById("pending-refresh");
 
-  if (!list) return;
-
-  let isLoading = false;
-
-  const setRefreshState = (busy) => {
-    if (!refreshBtn) return;
-    refreshBtn.disabled = busy;
-    refreshBtn.textContent = busy ? "새로고침중…" : "새로고침";
-  };
-
-  const load = async ({ silent } = {}) => {
-    if (isLoading) return;
-    isLoading = true;
-    setRefreshState(true);
-
-    if (!silent) {
-      list.innerHTML = `<div class="muted">불러오는 중…</div>`;
-      updateAdminStats({ pendingCount: "-", latest: "-" });
+    if (!list) {
+      console.error("[AAMS][admin] pending list container가 없습니다.");
+      return;
     }
 
-    try {
-      const rows = (await fetchAdminPending({ limit: 50 })) || [];
-      rows.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    let isLoading = false;
 
-      updateAdminStats({
-        pendingCount: rows.length,
-        latest: rows.length ? formatKST(rows[0]?.created_at) : "-"
-      });
+    const setRefreshState = (busy) => {
+      if (!refreshBtn) return;
+      refreshBtn.disabled = busy;
+      refreshBtn.textContent = busy ? "새로고침중…" : "새로고침";
+    };
 
-      if (!rows.length) {
-        list.innerHTML = `<div class="muted">승인 대기 건이 없습니다.</div>`;
-        return;
+    const load = async ({ silent } = {}) => {
+      if (isLoading) return;
+      isLoading = true;
+      setRefreshState(true);
+
+      if (!silent) {
+        list.innerHTML = `<div class="muted">불러오는 중…</div>`;
+        updateAdminStats({ pendingCount: "-", latest: "-" });
       }
 
-      list.innerHTML = rows.map(renderCard).join("");
-      wire(list, me);
-    } catch (error) {
-      const message = escapeHtml(error?.message || "불러오기 실패");
-      list.innerHTML = `<div class="error">불러오기 실패: ${message}</div>`;
-      updateAdminStats({ pendingCount: "-", latest: "-" });
-    } finally {
-      isLoading = false;
-      setRefreshState(false);
-    }
-  };
+      try {
+        const rows = (await fetchAdminPending({ limit: 50 })) || [];
+        rows.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
-  refreshBtn?.addEventListener("click", () => load({ silent: false }));
+        updateAdminStats({
+          pendingCount: rows.length,
+          latest: rows.length ? formatKST(rows[0]?.created_at) : "-"
+        });
 
-  await load({ silent: false });
-  list.innerHTML = `<div class="error">${e.message}</div>`;
+        if (!rows.length) {
+          list.innerHTML = `<div class="muted">승인 대기 건이 없습니다.</div>`;
+          return;
+        }
+
+        list.innerHTML = rows.map(renderCard).join("");
+        wire(list, me);
+      } catch (error) {
+        const message = escapeHtml(error?.message || "불러오기 실패");
+        list.innerHTML = `<div class="error">불러오기 실패: ${message}</div>`;
+        updateAdminStats({ pendingCount: "-", latest: "-" });
+      } finally {
+        isLoading = false;
+        setRefreshState(false);
+      }
+    };
+
+    refreshBtn?.addEventListener("click", () => load({ silent: false }));
+
+    await load({ silent: false });
+  } catch (error) {
+    console.error("[AAMS][admin] 관리자 메인 초기화 실패", error);
+    showAdminInitError(error);
+  }
 }
 
 function adaptStatLabels() {
@@ -151,7 +158,7 @@ function wire(root, me) {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-id");
       if (!id) return;
-      const detail = root.querySelector(`.card-detail[data-id="${CSS.escape(id)}"]`);
+      const detail = root.querySelector(`.card-detail[data-id="${escapeSelector(id)}"]`);
       if (!detail) return;
       const isHidden = detail.classList.toggle("hidden");
       const expanded = !isHidden;
@@ -186,13 +193,31 @@ function wire(root, me) {
         if (label) label.textContent = "완료"; else btn.textContent = "완료";
         setTimeout(() => location.reload(), 600);
       } catch (error) {
-        alert(`${action === "approve" ? "승인" : "거부"} 실패: ${error.message}`);
+        console.error(`[AAMS][admin] ${action} 실패`, error);
+        alert(`${action === "approve" ? "승인" : "거부"} 실패: ${error?.message || error}`);
         btn.disabled = false;
         if (label) label.textContent = original; else btn.textContent = original;
       }
     });
   });
 }
+
+function showAdminInitError(error) {
+  const list = document.getElementById("pending-list");
+  const app = document.getElementById("app");
+  const message = escapeHtml(error?.message || error || "알 수 없는 오류");
+
+  if (list) {
+    list.innerHTML = `<div class="error">관리자 화면 초기화 실패: ${message}</div>`;
+    return;
+  }
+
+  const container = document.createElement("div");
+  container.className = "error";
+  container.textContent = `관리자 화면 초기화 실패: ${message}`;
+  app?.appendChild(container);
+}
+
 
 function updateAdminStats({ pendingCount = "-", latest = "-" } = {}) {
   const pendingEl = document.getElementById("pending-count");
@@ -235,4 +260,12 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function escapeSelector(value) {
+  const raw = String(value ?? "");
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(raw);
+  }
+  return raw.replace(/['"\\]/g, "\\$&").replace(/\s+/g, (segment) => segment.split("").map((ch) => `\\${ch}`).join(""));
 }
