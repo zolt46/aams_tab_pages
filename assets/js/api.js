@@ -481,3 +481,4 @@ export async function listFpMappings() {
   const r = await fetch(`${FP_BASE()}/api/fp/map`);
   return r.ok ? r.json() : [];
 }
+
