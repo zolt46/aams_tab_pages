@@ -56,6 +56,44 @@ function listenAndRedirect() {
   return es;
 }
 
+// fp-admin 전용 claim
+async function claimOnceAdmin() {
+  const API_BASE = window.AAMS_CONFIG.API_BASE || "";
+  const SITE = window.FP_SITE || "site-01";
+  const after = Number(localStorage.getItem("AAMS_LOGOUT_AT") || 0);
+  const r = await fetch(`${API_BASE}/api/fp/claim`, {
+    method: 'POST',
+    headers: {'content-type':'application/json'},
+    body: JSON.stringify({ site: SITE, after, adminOnly: true }) // ← 관리자 전용
+  });
+  const j = await r.json();
+  if (j.ok && j.is_admin) {
+    const base = { id: Number(j.person_id), name: j.name, is_admin: true };
+    const me = await enrichAndSave(base);
+    location.hash = '#/admin';
+    return true;
+  }
+  return false;
+}
+
+// fp-admin SSE 핸들러
+openFpEventSource({
+  site: SITE,
+  onEvent: async (p) => {
+    const d = p?.data, r = p?.resolved;
+    if (d?.type === 'identify' && d.ok && r?.person_id) {
+      if (!r.is_admin) {
+        // 일반 사용자는 무시 (필요하면 안내)
+        // showToast('관리자 권한이 필요합니다');
+        return;
+      }
+      const base = { id: Number(r.person_id), name: r.name, is_admin: true };
+      const me = await enrichAndSave(base);
+      location.hash = '#/admin';
+    }
+  }
+});
+
 
 
 
@@ -131,7 +169,7 @@ export async function initFpUser() {
 export async function initFpAdmin() {
   await mountMobileHeader({ title: "관리자 확인", pageType: 'login', backTo: "#/admin-login" });
   // 1) 최근 1회용 티켓 먼저 시도
-  if (await claimOnce()) return;
+  if (await claimOnceAdmin()) return;
   // 2) 없으면 실시간 이벤트 대기
   listenAndRedirect();
   const loginId = sessionStorage.getItem("AAMS_ADMIN_LOGIN_ID"); // e.g. 'adminA'
@@ -177,3 +215,4 @@ export async function initFpAdmin() {
     location.hash = "#/admin";
   });
 }
+
