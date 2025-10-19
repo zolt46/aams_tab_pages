@@ -641,3 +641,4 @@ function formatAmmoLabel(item = {}) {
   if (unit) parts.push(unit);
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
+
