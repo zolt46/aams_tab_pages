@@ -1,8 +1,58 @@
 // assets/js/user.js
-import { fetchMyPendingApprovals as fetchUserPending, executeRequest } from "./api.js";
+import { fetchMyPendingApprovals as fetchUserPending, executeRequest, fetchRequestDetail } from "./api.js";
 import { getMe, renderMeBrief, mountMobileHeader } from "./util.js";
 
 const numberFormatter = new Intl.NumberFormat("ko-KR");
+
+const STATUS_METADATA = {
+  APPROVED: {
+    label: "승인됨",
+    hint: "집행 버튼을 누르면 Render 서버를 통해 로컬 브릿지로 명령이 전달되고, 장비 제어 파이썬 스크립트가 호출될 준비를 합니다.",
+    icon: "🗳️"
+  },
+  DISPATCH_PENDING: {
+    label: "장비 명령 대기",
+    hint: "집행 명령이 접수되어 로컬 브릿지가 장비 제어 코드 호출을 준비하고 있습니다.",
+    icon: "⏳"
+  },
+  DISPATCHING: {
+    label: "명령 전달 중",
+    hint: "로컬 브릿지가 로봇·레일 제어 스크립트로 보낼 명령 패키지를 구성하는 단계입니다.",
+    icon: "📤"
+  },
+  DISPATCHED: {
+    label: "명령 전달 완료",
+    hint: "명령이 로컬 브릿지에 전달되었으며, 파이썬 제어 스크립트의 응답을 기다리고 있습니다.",
+    icon: "🤝"
+  },
+  EXECUTING: {
+    label: "장비 동작 중",
+    hint: "로봇·레일 장비가 동작 중입니다. 완료되면 상태가 자동으로 갱신됩니다.",
+    icon: "⚙️"
+  },
+  EXECUTED: {
+    label: "집행 완료",
+    hint: "장비 제어가 정상적으로 완료되었습니다.",
+    icon: "✅"
+  },
+  COMPLETED: {
+    label: "집행 완료",
+    hint: "장비 제어가 정상적으로 완료되었습니다.",
+    icon: "✅"
+  },
+  DISPATCH_FAILED: {
+    label: "장비 전달 실패",
+    hint: "로컬 브릿지 또는 장비와의 통신에서 문제가 발생했습니다. 원인을 확인한 뒤 집행을 다시 시도할 수 있습니다.",
+    icon: "⚠️",
+    retryable: true
+  },
+  EXECUTION_FAILED: {
+    label: "장비 동작 오류",
+    hint: "장비 제어 중 오류가 발생했습니다. 장비 상태를 확인한 뒤 집행을 다시 시도하세요.",
+    icon: "⚠️",
+    retryable: true
+  }
+};
 
 function getLatestApprovalTimestamp(row = {}) {
   const approvalFromDetail = Array.isArray(row?.raw?.approvals)
@@ -84,7 +134,7 @@ export async function initUserMain() {
     }
 
     list.innerHTML = rows.map(renderCard).join("");
-    wire();
+    wire(rows, me);
   } catch (e) {
     const message = escapeHtml(e?.message || "오류가 발생했습니다.");
     list.innerHTML = `<div class="error">불러오기 실패: ${message}</div>`;
@@ -100,11 +150,14 @@ function renderCard(r) {
   const typeText = r.type === "ISSUE" ? "불출" : (r.type === "RETURN" ? "불입" : (r.type || "요청"));
   const requestedAt = formatKST(r.requested_at || r.created_at) || "-";
   const approvedAt = formatKST(getLatestApprovalTimestamp(r)) || "-";
-  const statusLabel = r.status ?? "대기";
-  const statusClass = `status-${sanitizeToken(r.status || "pending")}`;
+  const statusInfo = resolveStatusInfo(r.status);
+  const statusLabel = statusInfo.label;
+  const statusClass = `status-${sanitizeToken(statusInfo.key || r.status || "pending")}`;
   const ammoSummary = formatAmmoSummary(r);
   const requester = r.requester_name ?? r.raw?.requester_name ?? r.raw?.requester?.name ?? "-";
   const weaponCode = r.weapon_code ?? r.weapon?.code ?? r.raw?.weapon_code ?? r.raw?.weapon?.code ?? "-";
+  const executeState = getExecuteButtonState(r, statusInfo);
+  const executionHint = renderExecutionHint(statusInfo);
 
   return `
     <article class="card pending-card" data-id="${escapeHtml(requestId)}">
@@ -138,8 +191,8 @@ function renderCard(r) {
         </div>
       </div>
       <footer class="card-actions">
-        <button class="btn primary" data-act="execute" data-id="${escapeHtml(requestId)}">
-          <span class="btn-label">집행</span>
+        <button class="btn primary" data-act="execute" data-id="${escapeHtml(requestId)}"${executeState.disabled ? " disabled" : ""}>
+          <span class="btn-label">${escapeHtml(executeState.label)}</span>
         </button>
         <button class="btn ghost detail-btn" data-act="detail" data-id="${escapeHtml(requestId)}" aria-expanded="false">
           <span class="btn-label">상세 보기</span>
@@ -178,6 +231,7 @@ function renderCard(r) {
             ${renderAmmoList(r)}
           </div>
         </div>
+        ${executionHint}
       </div>
     </article>`;
 }
@@ -194,7 +248,15 @@ function formatKST(ts) {
   return `${y}-${m}-${day} ${hh}:${mm}`;
 }
 
-function wire() {
+function wire(rows = [], me = null) {
+  const requestMap = new Map();
+  (rows || []).forEach((row) => {
+    const key = String(row?.id ?? row?.raw?.id ?? "");
+    if (key) {
+      requestMap.set(key, row);
+    }
+  });
+
   document.querySelectorAll('[data-act="detail"]').forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-id");
@@ -213,13 +275,34 @@ function wire() {
     btn.addEventListener("click", async () => {
       const label = btn.querySelector(".btn-label");
       const original = label ? label.textContent : btn.textContent;
-      const requestId = Number(btn.getAttribute("data-id"));
-      if (!requestId) return;
+      const requestIdStr = btn.getAttribute("data-id");
+      if (!requestIdStr) return;
+      const requestIdNum = Number(requestIdStr);
+      const requestKey = String(requestIdStr);
       btn.disabled = true;
       if (label) label.textContent = "집행중…"; else btn.textContent = "집행중…";
       try {
-        const me = getMe();
-        await executeRequest({ requestId, executorId: me?.id });
+        const executor = me || getMe();
+        const row = requestMap.get(requestKey);
+        let detail = null;
+        try {
+          detail = await fetchRequestDetail(requestIdStr, { force: true });
+        } catch (detailError) {
+          console.warn(`[AAMS][user] 요청 상세 정보를 불러오지 못했습니다 (id=${requestIdStr})`, detailError);
+        }
+
+        const dispatch = buildDispatchPayload({
+          requestId: Number.isFinite(requestIdNum) ? requestIdNum : requestIdStr,
+          row,
+          detail,
+          executor
+        });
+
+        await executeRequest({
+          requestId: requestIdStr,
+          executorId: executor?.id,
+          dispatch
+        });
         if (label) label.textContent = "완료"; else btn.textContent = "완료";
         setTimeout(() => location.reload(), 600);
       } catch (e) {
@@ -263,6 +346,244 @@ function renderHeroGreeting(me = {}) {
     lines.push(`${escapeHtml(unit)} 소속으로 확인되었습니다.`);
   }
   return lines.join(" ");
+}
+
+function resolveStatusInfo(status) {
+  const key = String(status || "").trim().toUpperCase();
+  if (!key) {
+    return { key: "PENDING", label: "대기" };
+  }
+  const meta = STATUS_METADATA[key];
+  if (meta) {
+    return { key, ...meta };
+  }
+  return { key, label: status };
+}
+
+function getExecuteButtonState(row, statusInfo = {}) {
+  const key = statusInfo.key || String(row?.status || "").trim().toUpperCase();
+  if (!key || key === "APPROVED") {
+    return { label: "집행", disabled: false };
+  }
+  if (key === "DISPATCH_FAILED" || key === "EXECUTION_FAILED") {
+    return { label: "재시도", disabled: false };
+  }
+  if (key === "EXECUTED" || key === "COMPLETED") {
+    return { label: "완료", disabled: true };
+  }
+  if (["DISPATCH_PENDING", "DISPATCHING", "DISPATCHED", "EXECUTING"].includes(key)) {
+    return { label: statusInfo.label || "처리 중", disabled: true };
+  }
+  return { label: statusInfo.label || "집행", disabled: false };
+}
+
+function renderExecutionHint(statusInfo = {}) {
+  if (!statusInfo.hint) return "";
+  const icon = statusInfo.icon ? `<span class="icon" aria-hidden="true">${escapeHtml(statusInfo.icon)}</span>` : "";
+  return `<p class="card-hint">${icon}${escapeHtml(statusInfo.hint)}</p>`;
+}
+
+function buildDispatchPayload({ requestId, row = {}, detail = {}, executor = {} } = {}) {
+  const request = detail?.request || row?.raw?.request || row?.raw || {};
+  const firearm = extractFirearmInfo(row, detail);
+  const ammo = extractAmmoPayload(row, detail);
+  const includes = {
+    firearm: Boolean(firearm),
+    ammo: ammo.length > 0
+  };
+  const mode = includes.firearm && includes.ammo
+    ? "firearm_and_ammo"
+    : (includes.firearm ? "firearm_only" : (includes.ammo ? "ammo_only" : "none"));
+
+  const locker = firearm?.locker
+    || request?.locker
+    || request?.locker_code
+    || request?.storage
+    || request?.storage_code
+    || row?.location
+    || row?.raw?.locker
+    || row?.raw?.locker_code
+    || row?.raw?.weapon_locker
+    || row?.raw?.weapon?.locker
+    || row?.raw?.weapon?.locker_code
+    || null;
+
+  const payload = {
+    request_id: requestId ?? row?.id ?? request?.id ?? null,
+    site_id: detail?.site_id || request?.site_id || request?.site || row?.raw?.site_id || null,
+    type: request?.request_type || row?.type || request?.type || null,
+    mode,
+    includes,
+    firearm: firearm || undefined,
+    ammo: ammo.length ? ammo : undefined,
+    locker: locker || undefined,
+    location: row?.location || request?.location || undefined,
+    purpose: row?.purpose || request?.purpose || undefined,
+    requested_at: request?.requested_at || row?.requested_at || row?.created_at || undefined,
+    approved_at: request?.approved_at || row?.approved_at || undefined,
+    status: row?.status || request?.status || undefined,
+    executor: normalizeExecutor(executor)
+  };
+
+  const notes = pruneEmpty({
+    memo: request?.memo || request?.notes,
+    status_reason: row?.status_reason || request?.status_reason
+  });
+  if (notes) {
+    payload.notes = notes;
+  }
+
+  const cleaned = pruneEmpty(payload);
+  return cleaned || undefined;
+}
+
+function extractFirearmInfo(row = {}, detail = {}) {
+  const detailItems = Array.isArray(detail?.items) ? detail.items : [];
+  const request = detail?.request || row?.raw?.request || {};
+  const firearms = [];
+
+  if (detailItems.length) {
+    detailItems
+      .filter((item) => String(item?.item_type || item?.type || "").toUpperCase() === "FIREARM")
+      .forEach((item) => firearms.push(item));
+  }
+
+  if (Array.isArray(row?.raw?.firearms)) {
+    firearms.push(...row.raw.firearms);
+  }
+
+  if (row?.raw?.weapon) {
+    firearms.push(row.raw.weapon);
+  }
+
+  const candidate = firearms[0];
+
+  const code = candidate?.firearm_number
+    || candidate?.serial
+    || candidate?.code
+    || candidate?.weapon_code
+    || row?.weapon_code
+    || row?.weapon_summary
+    || request?.weapon_code
+    || null;
+
+  const locker = candidate?.locker
+    || candidate?.locker_code
+    || candidate?.locker_name
+    || candidate?.storage
+    || candidate?.storage_code
+    || request?.locker
+    || request?.locker_code
+    || null;
+
+  const slot = candidate?.slot
+    || candidate?.slot_number
+    || candidate?.rack_slot
+    || candidate?.position
+    || candidate?.compartment
+    || candidate?.compartment_number
+    || null;
+
+  const info = pruneEmpty({
+    id: candidate?.firearm_id || candidate?.weapon_id || candidate?.id || null,
+    code,
+    type: candidate?.firearm_type || candidate?.weapon_type || candidate?.type || null,
+    locker,
+    slot,
+    location: request?.location || row?.location || candidate?.location || null
+  });
+
+  if (info) {
+    return info;
+  }
+
+  if (code) {
+    return { code };
+  }
+
+  return null;
+}
+
+function extractAmmoPayload(row = {}, detail = {}) {
+  const detailItems = Array.isArray(detail?.items) ? detail.items : [];
+  const ammoItems = [];
+  const seen = new Set();
+
+  const push = (item) => {
+    if (!item) return;
+    const normalized = pruneEmpty({
+      code: item.code || item.ammo_code || null,
+      name: item.name || item.ammo_name || item.label || item.caliber || item.type || null,
+      type: item.type || item.ammo_category || null,
+      caliber: item.caliber || item.name || item.ammo_name || null,
+      qty: item.qty ?? item.quantity ?? item.count ?? item.amount ?? null,
+      unit: item.unit || item.unit_label || item.measure || null
+    });
+    if (!normalized) return;
+    const key = JSON.stringify([
+      normalized.code,
+      normalized.name,
+      normalized.type,
+      normalized.caliber,
+      normalized.qty,
+      normalized.unit
+    ]);
+    if (seen.has(key)) return;
+    seen.add(key);
+    ammoItems.push(normalized);
+  };
+
+  detailItems
+    .filter((item) => String(item?.item_type || item?.type || "").toUpperCase() === "AMMO")
+    .forEach(push);
+
+  if (Array.isArray(row?.raw?.ammo_items)) {
+    row.raw.ammo_items.forEach(push);
+  }
+
+  getAmmoItems(row).forEach(push);
+
+  return ammoItems;
+}
+
+function normalizeExecutor(executor = {}) {
+  return pruneEmpty({
+    id: executor?.id || executor?.user_id || null,
+    name: executor?.name || null,
+    rank: executor?.rank || null,
+    unit: executor?.unit || executor?.unit_name || null,
+    phone: executor?.phone || executor?.phone_number || null
+  }) || undefined;
+}
+
+function pruneEmpty(value) {
+  if (Array.isArray(value)) {
+    const arr = value
+      .map((entry) => pruneEmpty(entry))
+      .filter((entry) => {
+        if (entry === undefined || entry === null) return false;
+        if (typeof entry === "object" && !Array.isArray(entry) && !Object.keys(entry).length) return false;
+        return true;
+      });
+    return arr.length ? arr : undefined;
+  }
+
+  if (value && typeof value === "object" && value.constructor === Object) {
+    const obj = Object.entries(value).reduce((acc, [key, val]) => {
+      const next = pruneEmpty(val);
+      if (next !== undefined) {
+        acc[key] = next;
+      }
+      return acc;
+    }, {});
+    return Object.keys(obj).length ? obj : undefined;
+  }
+
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  return value;
 }
 
 function escapeHtml(value) {

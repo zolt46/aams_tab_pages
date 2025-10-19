@@ -54,12 +54,24 @@ export async function verifyAdminCredential(user_id, password) {
  * ========================= */
 
 // “나와 관련된 요청”을 서버에서 가져온 뒤, 집행 대기(= APPROVED)만 추려서 보여줌
+const USER_EXECUTION_PIPELINE_STATUSES = new Set([
+  "APPROVED",
+  "DISPATCH_PENDING",
+  "DISPATCHING",
+  "DISPATCHED",
+  "EXECUTING",
+  "EXECUTED",
+  "COMPLETED",
+  "DISPATCH_FAILED",
+  "EXECUTION_FAILED"
+]);
+
 export async function fetchMyPendingApprovals(userId) {
   // server.js: GET /api/requests/for_user/:uid
   const all = await _get(`${apiBase()}/api/requests/for_user/${encodeURIComponent(userId)}`);
-  // 집행 대기건: APPROVED → 사용자 카드 렌더링과 동일한 포맷으로 변환
+
   const rows = (all || [])
-    .filter(r => r.status === "APPROVED")
+    .filter((r) => USER_EXECUTION_PIPELINE_STATUSES.has(String(r?.status || "").toUpperCase()))
     .map(toRequestRow);
 
   await enrichRequestsWithItems(rows);
@@ -68,11 +80,16 @@ export async function fetchMyPendingApprovals(userId) {
 export { fetchMyPendingApprovals as fetchUserPending };
 
 // 집행
-export async function executeRequest({ requestId, executorId }) {
+export async function executeRequest({ requestId, executorId, dispatch }) {
   // server.js: POST /api/requests/:id/execute  { executed_by }
   return _post(`${apiBase()}/api/requests/${encodeURIComponent(requestId)}/execute`, {
     executed_by: executorId
   });
+  const body = { executed_by: executorId };
+  if (dispatch) {
+    body.dispatch = dispatch;
+  }
+  return _post(`${apiBase()}/api/requests/${encodeURIComponent(requestId)}/execute`, body);
 }
 
 /** =========================
@@ -128,10 +145,12 @@ function toRequestRow(r){
   const executedAt = r.executed_at || null;
   const rejectedAt = r.rejected_at || null;
   const updatedAt = r.updated_at || approvedAt || executedAt || rejectedAt || r.created_at || null;
+  const normalizedStatus = typeof r.status === "string" ? r.status.toUpperCase() : r.status;
+
   return {
     id: r.id,
     type: r.request_type || r.type,
-    status: r.status,
+    status: normalizedStatus,
     weapon_code: r.weapon_code || r.weapon?.code,
     ammo_summary: Array.isArray(r.ammo_items) && r.ammo_items.length
       ? r.ammo_items.map(it => `${it.caliber || it.type}×${it.qty}`).join(", ")

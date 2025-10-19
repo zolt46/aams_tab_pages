@@ -363,6 +363,13 @@ button:disabled {
 .badge.status-approved { background: rgba(59, 130, 246, 0.2); color: #bfdbfe; }
 .badge.status-rejected { background: rgba(248, 113, 113, 0.2); color: #fecaca; }
 .badge.status-executing { background: rgba(74, 222, 128, 0.2); color: #bbf7d0; }
+.badge.status-dispatch-pending { background: rgba(250, 204, 21, 0.12); color: #fcd34d; }
+.badge.status-dispatching { background: rgba(96, 165, 250, 0.18); color: #bfdbfe; }
+.badge.status-dispatched { background: rgba(129, 140, 248, 0.18); color: #c7d2fe; }
+.badge.status-dispatch-failed,
+.badge.status-execution-failed { background: rgba(248, 113, 113, 0.24); color: #fecaca; }
+.badge.status-executed,
+.badge.status-completed { background: rgba(74, 222, 128, 0.22); color: #dcfce7; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 .btn {
@@ -481,6 +488,24 @@ button:disabled {
 .pending-card .detail-grid .desc {
   font-weight: 600;
   color: var(--text);
+}
+
+.pending-card .card-hint {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.pending-card .card-hint .icon {
+  font-size: 1.1rem;
+  line-height: 1;
 }
 
 .user-dashboard { display: flex; flex-direction: column; gap: 28px; }
