@@ -1,5 +1,5 @@
 // assets/js/fingerprint.js
-import { mountMobileHeader, getApiBase, saveMe } from "./util.js";
+import { mountMobileHeader, saveMe } from "./util.js";
 import { listUsers, openFpEventSource } from "./api.js";
 
 const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
@@ -10,7 +10,14 @@ async function enrichAndSave(me) {
     const r = await fetch(`${API_BASE}/api/personnel/${encodeURIComponent(me.id)}`);
     const detail = r.ok ? await r.json() : null;
     // detail 예: { unit, rank, position, contact, ... }
-    const merged = { ...me, ...(detail || {}) };
+    const mergedDetail = detail || {};
+    const { is_admin: detailIsAdmin, ...restDetail } = mergedDetail;
+    const merged = { ...me, ...restDetail };
+    if (typeof me?.is_admin === "boolean") {
+      merged.is_admin = me.is_admin || !!detailIsAdmin || !!merged.is_admin;
+    } else if (detailIsAdmin !== undefined) {
+      merged.is_admin = !!detailIsAdmin;
+    }
     saveMe(merged);                 // ← AAMS_ME에 완전한 me 저장
     return merged;
   } catch {
@@ -19,36 +26,67 @@ async function enrichAndSave(me) {
   }
 }
 
+function resolveRedirect(me, redirect) {
+  if (typeof redirect === "function") {
+    try {
+      return redirect(me);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof redirect === "string" && redirect.trim()) {
+    return redirect;
+  }
+  return me?.is_admin ? "#/admin" : "#/user";
+}
+
+
 // 1) 티켓 클레임
-async function claimOnce() {
+async function claimOnce({ adminOnly = false, requireAdmin = false, redirect } = {}) {
   try {
     const after = Number(localStorage.getItem("AAMS_LOGOUT_AT") || 0);
     const r = await fetch(`${API_BASE}/api/fp/claim`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ site: SITE, after })
+      body: JSON.stringify({ site: SITE, after, ...(adminOnly ? { adminOnly: true } : {}) })
     });
     const j = await r.json();
     if (j && j.ok && j.person_id) {
       const base = { id: Number(j.person_id), name: j.name, is_admin: !!j.is_admin };
+      if (requireAdmin && !base.is_admin) {
+        return false;
+      }
       const me = await enrichAndSave(base);   // ← 상세 merge
-      location.hash = me.is_admin ? "#/admin" : "#/user";
+      const target = resolveRedirect(me, redirect);
+      if (target) {
+        location.hash = target;
+      }
       return true;
     }
   } catch {}
   return false;
 }
 
-function listenAndRedirect() {
+function listenAndRedirect({ requireAdmin = false, redirect } = {}) {
+  let redirected = false;
   const es = openFpEventSource({
     site: SITE,
     onEvent: async (p) => {
+      if (redirected) return;
       const d = p && p.data;
       const r = p && p.resolved;
       if (d && d.type === "identify" && d.ok && r && r.person_id) {
         const base = { id: Number(r.person_id), name: r.name, is_admin: !!r.is_admin };
+        if (requireAdmin && !base.is_admin) {
+          return;
+        }
         const me = await enrichAndSave(base); // ← 상세 merge
-        location.hash = me.is_admin ? "#/admin" : "#/user";
+        const target = resolveRedirect(me, redirect);
+        if (target) {
+          redirected = true;
+          location.hash = target;
+          try { es.close(); } catch {}
+        }
       }
     }
   });
@@ -58,41 +96,9 @@ function listenAndRedirect() {
 
 // fp-admin 전용 claim
 async function claimOnceAdmin() {
-  const API_BASE = window.AAMS_CONFIG.API_BASE || "";
-  const SITE = window.FP_SITE || "site-01";
-  const after = Number(localStorage.getItem("AAMS_LOGOUT_AT") || 0);
-  const r = await fetch(`${API_BASE}/api/fp/claim`, {
-    method: 'POST',
-    headers: {'content-type':'application/json'},
-    body: JSON.stringify({ site: SITE, after, adminOnly: true }) // ← 관리자 전용
-  });
-  const j = await r.json();
-  if (j.ok && j.is_admin) {
-    const base = { id: Number(j.person_id), name: j.name, is_admin: true };
-    const me = await enrichAndSave(base);
-    location.hash = '#/admin';
-    return true;
-  }
-  return false;
+  return claimOnce({ adminOnly: true, requireAdmin: true, redirect: "#/admin" });
 }
 
-// fp-admin SSE 핸들러
-openFpEventSource({
-  site: SITE,
-  onEvent: async (p) => {
-    const d = p?.data, r = p?.resolved;
-    if (d?.type === 'identify' && d.ok && r?.person_id) {
-      if (!r.is_admin) {
-        // 일반 사용자는 무시 (필요하면 안내)
-        // showToast('관리자 권한이 필요합니다');
-        return;
-      }
-      const base = { id: Number(r.person_id), name: r.name, is_admin: true };
-      const me = await enrichAndSave(base);
-      location.hash = '#/admin';
-    }
-  }
-});
 
 
 
@@ -101,9 +107,9 @@ openFpEventSource({
 export async function initFpUser() {
   await mountMobileHeader({ title: "사용자 선택", pageType: 'login', backTo: "#/" });
   // 1) 최근 1회용 티켓 먼저 시도 → 성공이면 즉시 이동, 실패면 계속 진행
-  if (await claimOnce()) return;
+  if (await claimOnce({ redirect: "#/user" })) return;
   // 2) 없으면 실시간 이벤트 대기
-  listenAndRedirect();
+  listenAndRedirect({ redirect: "#/user" });
   const box = document.getElementById("user-list");
   box.innerHTML = `<div class="muted">불러오는 중…</div>`;
   try {
@@ -171,7 +177,7 @@ export async function initFpAdmin() {
   // 1) 최근 1회용 티켓 먼저 시도
   if (await claimOnceAdmin()) return;
   // 2) 없으면 실시간 이벤트 대기
-  listenAndRedirect();
+  listenAndRedirect({ requireAdmin: true, redirect: "#/admin" });
   const loginId = sessionStorage.getItem("AAMS_ADMIN_LOGIN_ID"); // e.g. 'adminA'
   const box = document.getElementById("admin-list");
   box.innerHTML = `<div class="muted">불러오는 중…</div>`;
