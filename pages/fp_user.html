@@ -12,3 +12,43 @@
     </footer>
   </section>
 </main>
+
+<script type="module">
+  import { openFpEventSource } from "../assets/js/api.js";
+
+  const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
+  const SITE = window.FP_SITE || "site-01";
+
+  // 1) 먼저 1회용 티켓(서버 메모리) 클레임 시도: 성공하면 즉시 이동
+  try {
+    const r = await fetch(`${API_BASE}/api/fp/claim`, {
+      method: 'POST',
+      headers: {'content-type':'application/json'},
+      body: JSON.stringify({ site: SITE })
+    });
+    const j = await r.json();
+    if (j && j.ok) {
+      const me = { id: j.person_id, name: j.name, is_admin: !!j.is_admin };
+      localStorage.setItem('aams_me', JSON.stringify(me));
+      location.hash = me.is_admin ? '#/admin' : '#/user';
+    }
+  } catch (_) {}
+
+  // 2) 티켓이 없으면 실시간 이벤트 구독(SSE)
+  const es = openFpEventSource({
+    site: SITE,
+    onEvent: (p) => {
+      const d = p && p.data;
+      const r = p && p.resolved;
+      if (d && d.type === 'identify' && d.ok && r && r.person_id) {
+        const me = { id: r.person_id, name: r.name, is_admin: !!r.is_admin };
+        try { localStorage.setItem('aams_me', JSON.stringify(me)); } catch {}
+        location.hash = me.is_admin ? '#/admin' : '#/user';
+      }
+    }
+  });
+
+  // 페이지 떠날 때 정리
+  window.addEventListener('beforeunload', () => { try { es.close(); } catch {} });
+</script>
+

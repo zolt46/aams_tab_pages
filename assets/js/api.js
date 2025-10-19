@@ -442,3 +442,22 @@ async function fetchRequestDetails(ids, { concurrency = 4 } = {}) {
   await Promise.all(workers);
   return results;
 }
+
+// assets/js/api.js 맨 아래 근처에 추가
+const FP_BASE = () => getApiBase() || "";
+
+export function openFpEventSource({ site="default", onEvent }) {
+  const es = new EventSource(`${getApiBase()}/api/fp/stream?site=${encodeURIComponent(site)}`);
+  es.onmessage = ev => { try { onEvent?.(JSON.parse(ev.data||"{}")); } catch {} };
+  return es;
+}
+
+export async function fetchFpLast(site = "default") {
+  const r = await fetch(`${FP_BASE()}/api/fp/last?site=${encodeURIComponent(site)}`);
+  return r.ok ? r.json() : null;
+}
+
+export async function listFpMappings() {
+  const r = await fetch(`${FP_BASE()}/api/fp/map`);
+  return r.ok ? r.json() : [];
+}

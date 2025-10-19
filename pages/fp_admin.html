@@ -12,3 +12,54 @@
     </footer>
   </section>
 </main>
+
+<!-- fp_admin.html 하단에 모듈 스크립트 추가 -->
+<script type="module">
+  import { listUsers, openFpEventSource } from "../assets/js/api.js";
+
+  const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
+  const SITE = window.FP_SITE || "site-01";
+  const $list = document.getElementById("admin-list");
+
+  // (옵션) 관리자 목록 렌더
+  try {
+    const admins = (await listUsers({ role: "admin" })) || [];
+    $list.innerHTML = admins.map(a => `
+      <div class="item" data-id="${a.id}">
+        <b class="item-line">${a.rank ?? ""} ${a.name ?? ""}</b>
+        <span class="item-sub"><span class="tag tag-admin">ADMIN</span> ${a.unit ?? ""} · ${a.position ?? ""}</span>
+      </div>
+    `).join("");
+  } catch {}
+
+  // 1) 1회용 티켓 클레임 → 바로 이동
+  try {
+    const r = await fetch(`${API_BASE}/api/fp/claim`, {
+      method: 'POST',
+      headers: {'content-type':'application/json'},
+      body: JSON.stringify({ site: SITE })
+    });
+    const j = await r.json();
+    if (j && j.ok) {
+      const me = { id: j.person_id, name: j.name, is_admin: !!j.is_admin };
+      localStorage.setItem('aams_me', JSON.stringify(me));
+      location.hash = me.is_admin ? '#/admin' : '#/user';
+    }
+  } catch {}
+
+  // 2) 없으면 SSE 대기 → 이벤트 오면 이동
+  const es = openFpEventSource({
+    site: SITE,
+    onEvent: (p) => {
+      const d = p && p.data;
+      const r = p && p.resolved;
+      if (d && d.type === 'identify' && d.ok && r && r.person_id) {
+        const me = { id: r.person_id, name: r.name, is_admin: !!r.is_admin };
+        try { localStorage.setItem('aams_me', JSON.stringify(me)); } catch {}
+        location.hash = me.is_admin ? '#/admin' : '#/user';
+      }
+    }
+  });
+
+  window.addEventListener('beforeunload', () => { try { es.close(); } catch {} });
+</script>
