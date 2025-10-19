@@ -151,6 +151,20 @@ import { logout } from "./auth.js";
   }
 }
 
+export async function logoutKiosk() {
+  try {
+    localStorage.setItem("AAMS_LOGOUT_AT", String(Date.now()));
+    // 서버 티켓 무효화
+    await fetch(`${getApiBase()}/api/fp/invalidate`, {
+      method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({ site: window.FP_SITE || 'site-01' })
+    }).catch(()=>{});
+  } finally {
+    // me 초기화/라우팅 등 기존 동작
+    localStorage.removeItem("AAMS_ME");
+    location.hash = "#/"; // 또는 초기 페이지
+  }
+}
 
 // === 내 정보 렌더 ===
 export function getMe() {

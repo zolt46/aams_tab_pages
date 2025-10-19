@@ -447,7 +447,8 @@ async function fetchRequestDetails(ids, { concurrency = 4 } = {}) {
 const FP_BASE = () => getApiBase() || "";
 
 export function openFpEventSource({ site="default", onEvent }) {
-  const es = new EventSource(`${getApiBase()}/api/fp/stream?site=${encodeURIComponent(site)}`);
+  const since = Number(localStorage.getItem("AAMS_LOGOUT_AT") || 0);
+  const es = new EventSource(`${getApiBase()}/api/fp/stream?site=${encodeURIComponent(site)}&since=${since}`);
   es.onmessage = ev => { try { onEvent?.(JSON.parse(ev.data||"{}")); } catch {} };
   return es;
 }

@@ -22,10 +22,11 @@ async function enrichAndSave(me) {
 // 1) 티켓 클레임
 async function claimOnce() {
   try {
+    const after = Number(localStorage.getItem("AAMS_LOGOUT_AT") || 0);
     const r = await fetch(`${API_BASE}/api/fp/claim`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ site: SITE })
+      body: JSON.stringify({ site: SITE, after })
     });
     const j = await r.json();
     if (j && j.ok && j.person_id) {
