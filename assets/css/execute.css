@@ -1,0 +1,157 @@
+/* assets/css/execute.css */
+
+:root {
+  color-scheme: only dark;
+}
+
+.execute-stage {
+  position: fixed;
+  inset: 0;
+  min-height: 100vh;
+  background: #000;
+  color: #5bd4c1;
+  font-family: "Pretendard", "Noto Sans KR", "Segoe UI", system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+.execute-stage[data-scene="shutdown"] {
+  color: #4fae9e;
+}
+
+.execute-status {
+  position: absolute;
+  top: clamp(28px, 7vh, 88px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(88vw, 680px);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  text-align: center;
+  font-size: clamp(1.2rem, 3.2vw, 1.9rem);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: inherit;
+  white-space: normal;
+  line-height: 1.4;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.execute-status[data-level="error"] {
+  color: #ff9fb0;
+}
+
+.execute-status[data-level="success"] {
+  color: #d6fdf4;
+}
+
+.execute-face {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(12px, 4vw, 28px);
+}
+
+.execute-dot-grid {
+  --cols: 80;
+  --rows: 48;
+  width: min(100vmin, 100vw);
+  aspect-ratio: calc(var(--cols) / var(--rows));
+  display: grid;
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--rows), minmax(0, 1fr));
+  gap: clamp(0.002rem, 0.08vmin, 0.016rem);
+  padding: clamp(12px, 5vw, 40px);
+}
+
+.execute-dot {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 0;
+  background: #020808;
+  transform: scale(0.6);
+  opacity: 0.04;
+  transition: opacity 180ms ease, transform 240ms ease, background 240ms ease;
+}
+
+.execute-dot.is-on {
+  opacity: 0.82;
+  transform: scale(0.82);
+  background: #0f4039;
+}
+
+.execute-dot.is-accent {
+  opacity: 0.96;
+  background: #5be4cb;
+}
+
+.execute-dot-grid.is-boot .execute-dot.is-on {
+  animation: bootPulse 1.4s ease-in-out infinite alternate;
+}
+
+.execute-dot-grid.is-shutdown .execute-dot.is-on {
+  animation: dissolve 0.9s ease forwards;
+}
+
+.execute-exit {
+  position: absolute;
+  bottom: clamp(18px, 6vh, 60px);
+  padding: 0.7rem 2.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(90, 190, 170, 0.55);
+  background: rgba(12, 70, 62, 0.42);
+  color: #c8fff2;
+  font-size: clamp(0.76rem, 1.7vw, 0.96rem);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 200ms ease, box-shadow 200ms ease, background 200ms ease;
+  z-index: 4;
+}
+
+.execute-exit[hidden] {
+  display: none;
+}
+
+.execute-exit:hover,
+.execute-exit:focus-visible {
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 0 16px rgba(90, 190, 170, 0.45);
+  background: rgba(14, 90, 80, 0.7);
+}
+
+.execute-exit:focus-visible {
+  outline: 2px solid rgba(126, 255, 226, 0.75);
+  outline-offset: 4px;
+}
+
+@keyframes bootPulse {
+  from {
+    opacity: 0.5;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+@keyframes dissolve {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}

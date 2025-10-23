@@ -1,12 +1,31 @@
 <div id="top"></div>
 <main class="auth-shell">
-  <section class="auth-card list-card">
+  <section class="auth-card fp-card">
     <header class="auth-header">
       <p class="badge">USER</p>
       <h2>사용자 지문 인식</h2>
-      <p class="muted">출입을 신청한 사용자를 선택하거나 지문 센서에 손가락을 올려주세요.</p>
+      <p class="muted">지문 센서에 손가락을 올려주세요.</p>
     </header>
-    <div id="user-list" class="auth-list"></div>
+    <div class="fp-stage" data-state="waiting">
+      <div class="fp-visual">
+        <div class="fp-sensor">
+          <div class="fp-sensor-border"></div>
+          <div class="fp-sensor-pattern"></div>
+          <div class="fp-sensor-glow"></div>
+          <div class="fp-sensor-scan"></div>
+        </div>
+      </div>
+      <div class="fp-status">
+        <p class="fp-status-line" data-for="waiting">센서가 사용자의 지문을 기다리고 있습니다.</p>
+        <p class="fp-status-line" data-for="scanning">지문을 확인하고 있습니다…</p>
+        <p class="fp-status-line" data-for="success">지문 인식되었습니다. <strong class="fp-name" data-role="name"></strong>님 환영합니다.</p>
+        <p class="fp-status-line" data-for="error">지문을 다시 인식해 주세요.</p>
+      </div>
+      <div class="fp-profile" data-role="profile" hidden>
+        <p class="fp-profile-name" data-role="profile-name"></p>
+        <p class="fp-profile-sub" data-role="profile-sub"></p>
+      </div>
+    </div>
     <footer class="auth-footer">
       <p class="muted s">본인 인증 이후에는 관리자 승인 절차가 진행됩니다.</p>
     </footer>
@@ -14,41 +33,7 @@
 </main>
 
 <script type="module">
-  import { openFpEventSource } from "../assets/js/api.js";
-
-  const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
-  const SITE = window.FP_SITE || "site-01";
-
-  // 1) 먼저 1회용 티켓(서버 메모리) 클레임 시도: 성공하면 즉시 이동
-  try {
-    const r = await fetch(`${API_BASE}/api/fp/claim`, {
-      method: 'POST',
-      headers: {'content-type':'application/json'},
-      body: JSON.stringify({ site: SITE })
-    });
-    const j = await r.json();
-    if (j && j.ok) {
-      const me = { id: j.person_id, name: j.name, is_admin: !!j.is_admin };
-      localStorage.setItem('aams_me', JSON.stringify(me));
-      location.hash = me.is_admin ? '#/admin' : '#/user';
-    }
-  } catch (_) {}
-
-  // 2) 티켓이 없으면 실시간 이벤트 구독(SSE)
-  const es = openFpEventSource({
-    site: SITE,
-    onEvent: (p) => {
-      const d = p && p.data;
-      const r = p && p.resolved;
-      if (d && d.type === 'identify' && d.ok && r && r.person_id) {
-        const me = { id: r.person_id, name: r.name, is_admin: !!r.is_admin };
-        try { localStorage.setItem('aams_me', JSON.stringify(me)); } catch {}
-        location.hash = me.is_admin ? '#/admin' : '#/user';
-      }
-    }
-  });
-
-  // 페이지 떠날 때 정리
-  window.addEventListener('beforeunload', () => { try { es.close(); } catch {} });
+  import { initFpUser } from "../assets/js/fingerprint.js";
+  initFpUser();
 </script>
 

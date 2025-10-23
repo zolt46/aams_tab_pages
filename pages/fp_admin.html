@@ -1,65 +1,39 @@
 <div id="top"></div>
 <main class="auth-shell">
-  <section class="auth-card list-card">
+  <section class="auth-card fp-card">
     <header class="auth-header">
       <p class="badge">ADMIN</p>
       <h2>관리자 지문 인식</h2>
-      <p class="muted">등록된 관리자를 선택하거나 센서에 손가락을 올려주세요.</p>
+      <p class="muted">등록된 관리자 지문을 인식해 주세요.</p>
     </header>
-    <div id="admin-list" class="auth-list"></div>
+    <div class="fp-stage" data-state="waiting">
+      <div class="fp-visual">
+        <div class="fp-sensor">
+          <div class="fp-sensor-border"></div>
+          <div class="fp-sensor-pattern"></div>
+          <div class="fp-sensor-glow"></div>
+          <div class="fp-sensor-scan"></div>
+        </div>
+      </div>
+      <div class="fp-status">
+        <p class="fp-status-line" data-for="waiting">관리자 지문을 기다리는 중입니다.</p>
+        <p class="fp-status-line" data-for="scanning">관리자 권한을 확인하고 있습니다…</p>
+        <p class="fp-status-line" data-for="success">지문 인식되었습니다. <strong class="fp-name" data-role="name"></strong> 관리자님, 환영합니다.</p>
+        <p class="fp-status-line" data-for="error" data-role="error">로그인한 관리자 계정과 지문이 일치하지 않습니다. 다시 시도해 주세요.</p>
+      </div>
+      <div class="fp-profile" data-role="profile" hidden>
+        <p class="fp-profile-name" data-role="profile-name"></p>
+        <p class="fp-profile-sub" data-role="profile-sub"></p>
+      </div>
+    </div>
     <footer class="auth-footer">
-      <p class="muted s">최근 로그인 순으로 정렬되어 있습니다.</p>
+      <p class="muted s">보안 유지를 위해 인증이 완료되면 즉시 메인으로 이동합니다.</p>
     </footer>
   </section>
 </main>
 
-<!-- fp_admin.html 하단에 모듈 스크립트 추가 -->
+
 <script type="module">
-  import { listUsers, openFpEventSource } from "../assets/js/api.js";
-
-  const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
-  const SITE = window.FP_SITE || "site-01";
-  const $list = document.getElementById("admin-list");
-
-  // (옵션) 관리자 목록 렌더
-  try {
-    const admins = (await listUsers({ role: "admin" })) || [];
-    $list.innerHTML = admins.map(a => `
-      <div class="item" data-id="${a.id}">
-        <b class="item-line">${a.rank ?? ""} ${a.name ?? ""}</b>
-        <span class="item-sub"><span class="tag tag-admin">ADMIN</span> ${a.unit ?? ""} · ${a.position ?? ""}</span>
-      </div>
-    `).join("");
-  } catch {}
-
-  // 1) 1회용 티켓 클레임 → 바로 이동
-  try {
-    const r = await fetch(`${API_BASE}/api/fp/claim`, {
-      method: 'POST',
-      headers: {'content-type':'application/json'},
-      body: JSON.stringify({ site: SITE })
-    });
-    const j = await r.json();
-    if (j && j.ok) {
-      const me = { id: j.person_id, name: j.name, is_admin: !!j.is_admin };
-      localStorage.setItem('aams_me', JSON.stringify(me));
-      location.hash = me.is_admin ? '#/admin' : '#/user';
-    }
-  } catch {}
-
-  // 2) 없으면 SSE 대기 → 이벤트 오면 이동
-  const es = openFpEventSource({
-    site: SITE,
-    onEvent: (p) => {
-      const d = p && p.data;
-      const r = p && p.resolved;
-      if (d && d.type === 'identify' && d.ok && r && r.person_id) {
-        const me = { id: r.person_id, name: r.name, is_admin: !!r.is_admin };
-        try { localStorage.setItem('aams_me', JSON.stringify(me)); } catch {}
-        location.hash = me.is_admin ? '#/admin' : '#/user';
-      }
-    }
-  });
-
-  window.addEventListener('beforeunload', () => { try { es.close(); } catch {} });
+  import { initFpAdmin } from "../assets/js/fingerprint.js";
+  initFpAdmin();
 </script>

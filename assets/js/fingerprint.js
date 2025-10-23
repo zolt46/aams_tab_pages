@@ -1,15 +1,209 @@
 // assets/js/fingerprint.js
-import { mountMobileHeader, saveMe } from "./util.js";
-import { listUsers, openFpEventSource } from "./api.js";
+import { mountMobileHeader, saveMe, getFpLocalBase } from "./util.js";
+import { openFpEventSource } from "./api.js";
 
 const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
 const SITE = window.FP_SITE || "site-01";
+const WAIT_AFTER_SUCCESS_MS = 2000;
+const SCAN_FEEDBACK_DELAY_MS = 420;
+const LOCAL_IDENTIFY_TIMEOUT_MS = 65000;
+const DEFAULT_LED_ON_COMMAND = { mode: "breathing", color: "blue", speed: 18 };
+const LED_OFF_COMMAND = { mode: "off" };
+
+const sleep = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function joinLocalUrl(base, path) {
+  const trimmed = (base || "").trim();
+  if (!trimmed) return path;
+  return trimmed.replace(/\/?$/, "") + path;
+}
+
+function createLocalIdentifySession({ timeoutMs = LOCAL_IDENTIFY_TIMEOUT_MS } = {}) {
+  const base = getFpLocalBase();
+  if (!base) return null;
+
+  const effectiveTimeout = Math.max(5000, Number(timeoutMs) || LOCAL_IDENTIFY_TIMEOUT_MS);
+  const payload = {
+    site: SITE,
+    timeoutMs: effectiveTimeout,
+    led: DEFAULT_LED_ON_COMMAND
+  };
+
+  const startUrl = joinLocalUrl(base, "/identify/start");
+  const stopUrl = joinLocalUrl(base, "/identify/stop");
+
+  let stopped = false;
+  const listeners = [];
+  const addListener = (type, handler, options) => {
+    window.addEventListener(type, handler, options);
+    listeners.push({ type, handler, options });
+  };
+  const cleanup = () => {
+    while (listeners.length) {
+      const { type, handler, options } = listeners.pop();
+      window.removeEventListener(type, handler, options);
+    }
+  };
+
+  const stop = async ({ reason = "manual", turnOffLed = true } = {}) => {
+    if (stopped) return;
+    stopped = true;
+    cleanup();
+    try {
+      const body = { site: SITE, reason };
+      if (turnOffLed) {
+        body.led = LED_OFF_COMMAND;
+      }
+      await fetch(stopUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      }).catch(() => {});
+    } catch (err) {
+      console.warn("[AAMS][fp] 로컬 지문 세션 종료 실패", err);
+    }
+  };
+
+  const autoStop = () => { stop({ reason: "navigation", turnOffLed: true }); };
+  addListener("hashchange", autoStop);
+  addListener("beforeunload", autoStop);
+  addListener("pagehide", autoStop, { once: true });
+
+  const started = (async () => {
+    const res = await fetch(startUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (err) {
+      data = null;
+    }
+    if (!res.ok || (data && data.ok === false)) {
+      const message = data?.message || data?.error || `HTTP ${res.status}`;
+      throw new Error(message);
+    }
+    return data;
+  })();
+
+  started.catch(() => stop({ reason: "start_failed", turnOffLed: true }));
+
+  return { stop, started };
+}
+
+async function stopLocalIdentifySession(session, { reason = "manual", turnOffLed = true } = {}) {
+  if (!session || typeof session.stop !== "function") return;
+  try {
+    await session.stop({ reason, turnOffLed });
+  } catch (error) {
+    console.warn("[AAMS][fp] 로컬 세션 정리 중 오류", error);
+  }
+}
+
+
+function formatDisplayName(me = {}, fallback = "사용자") {
+  const rank = me?.rank ? String(me.rank).trim() : "";
+  const name = me?.name ? String(me.name).trim() : String(fallback);
+  return [rank, name].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+}
+
+function formatProfileSub(me = {}) {
+  const unit = me.unit || me.unit_name;
+  const position = me.position || me.duty;
+  const serial = me.serial || me.military_id || me.militaryId || me.service_no;
+  return [unit, position, serial]
+    .map((value) => (value == null ? "" : String(value).trim()))
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function pickTarget(result, fallback) {
+  if (typeof result === "string" && result.trim()) {
+    return result.trim();
+  }
+  if (result && typeof result === "object" && typeof result.target === "string" && result.target.trim()) {
+    return result.target.trim();
+  }
+  return fallback;
+}
+
+function createFingerprintStage({ fallbackName = "사용자", errorResetMs = 2600 } = {}) {
+  const stage = document.querySelector(".fp-stage");
+  if (!stage) {
+    return {
+      setWaiting() {},
+      setScanning() {},
+      showSuccess() {},
+      showError() {},
+    };
+  }
+
+  const nameEl = stage.querySelector("[data-role='name']");
+  const profileEl = stage.querySelector("[data-role='profile']");
+  const profileNameEl = stage.querySelector("[data-role='profile-name']");
+  const profileSubEl = stage.querySelector("[data-role='profile-sub']");
+  const errorLine = stage.querySelector(".fp-status-line[data-for~='error']");
+  const defaultError = errorLine ? errorLine.textContent.trim() : "";
+
+  let resetTimer = null;
+  const clearReset = () => { if (resetTimer) { clearTimeout(resetTimer); resetTimer = null; } };
+
+  const applyState = (state) => {
+    stage.dataset.state = state;
+    if (!profileEl) return;
+    const hasDetail = !!(profileNameEl?.textContent || profileSubEl?.textContent);
+    profileEl.hidden = !(state === "success" && hasDetail);
+  };
+
+  const setWaiting = () => {
+    clearReset();
+    if (errorLine) errorLine.textContent = defaultError;
+    if (profileNameEl) profileNameEl.textContent = "";
+    if (profileSubEl) profileSubEl.textContent = "";
+    applyState("waiting");
+  };
+
+  const setScanning = () => {
+    clearReset();
+    if (profileEl) profileEl.hidden = true;
+    applyState("scanning");
+  };
+
+  const showSuccess = (me = {}) => {
+    clearReset();
+    const displayName = formatDisplayName(me, fallbackName);
+    if (nameEl) nameEl.textContent = displayName;
+    if (profileNameEl) profileNameEl.textContent = displayName;
+    if (profileSubEl) profileSubEl.textContent = formatProfileSub(me);
+    if (errorLine) errorLine.textContent = defaultError;
+    applyState("success");
+  };
+
+  const showError = (message, { autoResetMs = errorResetMs } = {}) => {
+    clearReset();
+    if (errorLine) errorLine.textContent = message || defaultError;
+    if (profileEl) profileEl.hidden = true;
+    applyState("error");
+    if (autoResetMs && autoResetMs > 0) {
+      resetTimer = setTimeout(() => {
+        if (errorLine) errorLine.textContent = defaultError;
+        applyState("waiting");
+      }, autoResetMs);
+    }
+  };
+
+  setWaiting();
+
+  return { setWaiting, setScanning, showSuccess, showError };
+}
 
 async function enrichAndSave(me) {
   try {
     const r = await fetch(`${API_BASE}/api/personnel/${encodeURIComponent(me.id)}`);
     const detail = r.ok ? await r.json() : null;
-    // detail 예: { unit, rank, position, contact, ... }
+
     const mergedDetail = detail || {};
     const { is_admin: detailIsAdmin, ...restDetail } = mergedDetail;
     const merged = { ...me, ...restDetail };
@@ -18,10 +212,10 @@ async function enrichAndSave(me) {
     } else if (detailIsAdmin !== undefined) {
       merged.is_admin = !!detailIsAdmin;
     }
-    saveMe(merged);                 // ← AAMS_ME에 완전한 me 저장
+    saveMe(merged);
     return merged;
   } catch {
-    saveMe(me);                     // 실패해도 최소 me 저장
+    saveMe(me);
     return me;
   }
 }
@@ -41,184 +235,284 @@ function resolveRedirect(me, redirect) {
 }
 
 
-// 1) 티켓 클레임
-async function claimOnce({ adminOnly = false, requireAdmin = false, redirect } = {}) {
+async function claimOnce({ adminOnly = false, requireAdmin = false, redirect, autoRedirect = true, onResolved } = {}) {
   try {
     const after = Number(localStorage.getItem("AAMS_LOGOUT_AT") || 0);
+    const body = { site: SITE, after };
+    if (adminOnly) body.adminOnly = true;
     const r = await fetch(`${API_BASE}/api/fp/claim`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ site: SITE, after, ...(adminOnly ? { adminOnly: true } : {}) })
+      body: JSON.stringify(body)
     });
     const j = await r.json();
     if (j && j.ok && j.person_id) {
       const base = { id: Number(j.person_id), name: j.name, is_admin: !!j.is_admin };
       if (requireAdmin && !base.is_admin) {
-        return false;
+        return { success: false, reason: "require_admin", me: base };
       }
-      const me = await enrichAndSave(base);   // ← 상세 merge
-      const target = resolveRedirect(me, redirect);
-      if (target) {
-        location.hash = target;
+      const me = await enrichAndSave(base);
+      const resolvedTarget = resolveRedirect(me, redirect);
+      const ctx = { source: "claim", target: resolvedTarget };
+      let cbResult;
+      if (typeof onResolved === "function") {
+        try {
+          cbResult = await onResolved(me, ctx);
+        } catch (err) {
+          console.warn("[AAMS][fp] onResolved handler 오류", err);
+        }
       }
-      return true;
+      if (cbResult === false) {
+        return {
+          success: false,
+          me,
+          target: resolvedTarget,
+          reason: ctx?.rejectReason || "callback_rejected",
+          context: ctx
+        };
+      }
+      const nextTarget = pickTarget(cbResult, resolvedTarget);
+      if (autoRedirect !== false && nextTarget) {
+        location.hash = nextTarget;
+      }
+      return { success: true, me, target: nextTarget };
     }
-  } catch {}
-  return false;
+  } catch (err) {
+    console.warn("[AAMS][fp] claimOnce 처리 중 오류", err);
+    return { success: false, reason: "error", error: err };
+  }
+  return { success: false };
 }
 
-function listenAndRedirect({ requireAdmin = false, redirect } = {}) {
-  let redirected = false;
+function listenAndRedirect({ requireAdmin = false, redirect, autoRedirect = true, onResolved, onRejected } = {}) {
+  let handled = false;
   const es = openFpEventSource({
     site: SITE,
-    onEvent: async (p) => {
-      if (redirected) return;
-      const d = p && p.data;
-      const r = p && p.resolved;
-      if (d && d.type === "identify" && d.ok && r && r.person_id) {
-        const base = { id: Number(r.person_id), name: r.name, is_admin: !!r.is_admin };
-        if (requireAdmin && !base.is_admin) {
-          return;
+    onEvent: async (payload) => {
+      if (handled) return;
+      const d = payload?.data;
+      const r = payload?.resolved;
+      if (!(d && d.type === "identify" && d.ok && r && r.person_id)) return;
+      const base = { id: Number(r.person_id), name: r.name, is_admin: !!r.is_admin };
+      if (requireAdmin && !base.is_admin) {
+        if (typeof onRejected === "function") {
+          try {
+            await onRejected({ reason: "require_admin", base, payload, source: "event" });
+          } catch (err) {
+            console.warn("[AAMS][fp] onRejected 처리 중 오류", err);
+          }
         }
-        const me = await enrichAndSave(base); // ← 상세 merge
-        const target = resolveRedirect(me, redirect);
-        if (target) {
-          redirected = true;
-          location.hash = target;
-          try { es.close(); } catch {}
+        return;
+      }
+      const me = await enrichAndSave(base);
+      const resolvedTarget = resolveRedirect(me, redirect);
+      const ctx = { source: "event", event: payload, target: resolvedTarget };
+      let cbResult;
+      if (typeof onResolved === "function") {
+        try {
+          cbResult = await onResolved(me, ctx);
+        } catch (err) {
+          console.warn("[AAMS][fp] onResolved handler 오류", err);
         }
       }
+      if (cbResult === false) {
+        if (typeof onRejected === "function") {
+          try {
+            await onRejected({
+              reason: ctx?.rejectReason || "callback_rejected",
+              me,
+              ctx,
+              payload,
+              source: "event"
+            });
+          } catch (err) {
+            console.warn("[AAMS][fp] onRejected 처리 중 오류", err);
+          }
+        }
+        return;
+      }
+      if (handled) return;
+      handled = true;
+      const nextTarget = pickTarget(cbResult, resolvedTarget);
+      if (autoRedirect !== false && nextTarget) {
+        location.hash = nextTarget;
+      }
+      try { es.close(); } catch {}
     }
   });
   window.addEventListener("beforeunload", () => { try { es.close(); } catch {} });
   return es;
 }
 
-// fp-admin 전용 claim
-async function claimOnceAdmin() {
-  return claimOnce({ adminOnly: true, requireAdmin: true, redirect: "#/admin" });
+async function claimOnceAdmin(options = {}) {
+  const { redirect = "#/admin", ...rest } = options || {};
+  return claimOnce({ adminOnly: true, requireAdmin: true, redirect, ...rest });
 }
 
-
-
-
-
-// 사용자 지문: 사용자 선택 → #/user
 export async function initFpUser() {
-  await mountMobileHeader({ title: "사용자 선택", pageType: 'login', backTo: "#/" });
-  // 1) 최근 1회용 티켓 먼저 시도 → 성공이면 즉시 이동, 실패면 계속 진행
-  if (await claimOnce({ redirect: "#/user" })) return;
-  // 2) 없으면 실시간 이벤트 대기
-  listenAndRedirect({ redirect: "#/user" });
-  const box = document.getElementById("user-list");
-  box.innerHTML = `<div class="muted">불러오는 중…</div>`;
-  try {
-    const rows = await listUsers();
-    if (!rows?.length) box.innerHTML = `<div class="muted">사용자가 없습니다.</div>`;
-    else {
-      const sorted = rows.slice().sort((a, b) => {
-        if (!!a.is_admin === !!b.is_admin) {
-          return String(a.name || "").localeCompare(String(b.name || ""), "ko", { sensitivity: "base" });
-        }
-        return a.is_admin ? 1 : -1;
-      });
-      const attr = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-      const escape = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      box.innerHTML = sorted.map(r => {
-        const adminTag = r.is_admin ? '<span class="tag tag-admin">관리자</span>' : '';
-        const unit = r.unit || r.unit_name || "";
-        const name = escape(r.name || "사용자");
-        const rank = r.rank ? ` <span class="muted">(${escape(r.rank)})</span>` : "";
-        const unitLine = unit ? escape(unit) : "";
-        const unitDisplay = unitLine || "-";
-        return `
-        <button class="item" data-id="${attr(r.id)}" data-admin="${r.is_admin ? "1" : "0"}"
-                data-name="${attr(r.name)}" data-rank="${attr(r.rank)}"
-                data-unit="${attr(unit)}" data-serial="${attr(r.military_id)}"
-                data-position="${attr(r.position)}" data-contact="${attr(r.contact)}"
-                data-userid="${attr(r.user_id)}">
-          <span class="item-line">${name}${rank}</span>
-          <span class="item-sub">${unitDisplay}${adminTag ? ` ${adminTag}` : ""}</span>
-        </button>`;
-      }).join("");
-    }
-  } catch (e) {
-    const msg = String(e?.message || "오류가 발생했습니다.")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-    box.innerHTML = `<div class="error">불러오기 실패: ${msg}</div>`;
+  await mountMobileHeader({ title: "사용자 지문 인증", pageType: "login", backTo: "#/" });
+  const stage = createFingerprintStage({ fallbackName: "사용자" });
+
+  let localSession = createLocalIdentifySession();
+  if (localSession?.started) {
+    localSession.started.catch((err) => {
+      console.warn("[AAMS][fp] 사용자 지문 세션 시작 실패", err);
+      stage.showError("지문 센서를 준비할 수 없습니다. 연결 상태를 확인해 주세요.", { autoResetMs: 0 });
+    });
   }
 
-  box.addEventListener("click", (ev)=>{
-    const b = ev.target.closest(".item"); if (!b) return;
-    const me = {
-      id: Number(b.getAttribute("data-id")),
-      name: b.getAttribute("data-name"),
-      rank: b.getAttribute("data-rank"),
-      unit: b.getAttribute("data-unit"),
-      serial: b.getAttribute("data-serial"),
-      position: b.getAttribute("data-position"),
-      duty: b.getAttribute("data-position"),
-      contact: b.getAttribute("data-contact"),
-      user_id: b.getAttribute("data-userid"),
-      is_admin: b.getAttribute("data-admin") === "1"
-    };
-    localStorage.setItem("AAMS_ME", JSON.stringify(me));
-    location.hash = "#/user";
-  });
+  const stopLocal = async (reason) => {
+    if (!localSession) return;
+    const current = localSession;
+    localSession = null;
+    await stopLocalIdentifySession(current, { reason });
+  };
+
+  let redirectTimer = null;
+  const scheduleRedirect = (target) => {
+    const next = target || "#/user";
+    if (!next) return;
+    if (redirectTimer) clearTimeout(redirectTimer);
+    redirectTimer = setTimeout(() => { location.hash = next; }, WAIT_AFTER_SUCCESS_MS);
+  };
+
+  const handleResolved = async (me, ctx) => {
+    stage.setScanning();
+    const stopPromise = stopLocal("matched");
+    await sleep(SCAN_FEEDBACK_DELAY_MS);
+    stage.showSuccess(me);
+    await stopPromise;
+    scheduleRedirect(ctx?.target || "#/user");
+    return true;
+  };
+
+
+
+  const claimResult = await claimOnce({ redirect: "#/user", autoRedirect: false, onResolved: handleResolved });
+  if (claimResult.success) {
+    await stopLocal("claim-success");
+    return;
+  }
+
+  listenAndRedirect({ redirect: "#/user", autoRedirect: false, onResolved: handleResolved });
 }
 
-
-
-// 관리자 지문: 직전 로그인한 관리자 user_id만 노출 → 선택 시 #/admin
 export async function initFpAdmin() {
-  await mountMobileHeader({ title: "관리자 확인", pageType: 'login', backTo: "#/admin-login" });
-  // 1) 최근 1회용 티켓 먼저 시도
-  if (await claimOnceAdmin()) return;
-  // 2) 없으면 실시간 이벤트 대기
-  listenAndRedirect({ requireAdmin: true, redirect: "#/admin" });
-  const loginId = sessionStorage.getItem("AAMS_ADMIN_LOGIN_ID"); // e.g. 'adminA'
-  const box = document.getElementById("admin-list");
-  box.innerHTML = `<div class="muted">불러오는 중…</div>`;
-  try {
-    const rows = await listUsers({ role: "admin" });
-    const filtered = rows.filter(r => String(r.user_id||"") === String(loginId||""));
-    if (!filtered.length) {
-      box.innerHTML = `<div class="error">직전 로그인한 관리자 계정(${loginId})을 찾을 수 없습니다.</div>`;
-    } else {
-      const attr = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-      const escape = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      box.innerHTML = filtered.map(r => `
-        <button class="item" data-id="${attr(r.id)}"
-                data-name="${attr(r.name)}" data-userid="${attr(r.user_id)}"
-                data-rank="${attr(r.rank)}" data-unit="${attr(r.unit)}"
-                data-position="${attr(r.position)}" data-contact="${attr(r.contact)}"
-                data-serial="${attr(r.military_id)}">
-          ${escape(r.name||"관리자")} (${escape(r.user_id)||"-"})
-        </button>
-      `).join("");
+  await mountMobileHeader({ title: "관리자 지문 인증", pageType: "login", backTo: "#/admin-login" });
+  const stage = createFingerprintStage({ fallbackName: "관리자" });
+  const loginId = String(sessionStorage.getItem("AAMS_ADMIN_LOGIN_ID") || "").trim();
+  const mismatchMessage = loginId
+    ? `현재 로그인한 관리자 계정(${loginId})과 지문이 일치하지 않습니다. 다시 시도해 주세요.`
+    : "로그인한 관리자 계정과 지문이 일치하지 않습니다. 다시 시도해 주세요.";
+
+  const unauthorizedMessage = "등록된 관리자 지문이 아닙니다. 관리자 권한이 있는 지문으로 다시 시도해 주세요.";
+
+  let localSession = null;
+
+  const startLocal = () => {
+    if (localSession) return localSession;
+    const session = createLocalIdentifySession();
+    localSession = session;
+    if (session?.started) {
+      session.started.catch((err) => {
+        console.warn("[AAMS][fp] 관리자 지문 세션 시작 실패", err);
+        if (localSession === session) {
+          localSession = null;
+        }
+        stage.showError("지문 센서를 준비할 수 없습니다. 연결 상태를 확인해 주세요.", { autoResetMs: 0 });
+      });
     }
-  } catch (e) {
-    box.innerHTML = `<div class="error">불러오기 실패: ${e.message}</div>`;
+    return session;
+  };
+
+  const stopLocal = async (reason) => {
+    const current = localSession;
+    localSession = null;
+    if (!current) return;
+    try {
+      await stopLocalIdentifySession(current, { reason });
+    } catch (err) {
+      console.warn(`[AAMS][fp] 로컬 세션 종료 실패(${reason})`, err);
+    }
+  };
+
+  const restartLocal = async (reason) => {
+    const current = localSession;
+    localSession = null;
+    if (current) {
+      try {
+        await stopLocalIdentifySession(current, { reason, turnOffLed: true });
+      } catch (err) {
+        console.warn(`[AAMS][fp] 로컬 세션 재시작 실패(${reason})`, err);
+      }
+    }
+    startLocal();
+  };
+
+  startLocal();
+
+  let redirectTimer = null;
+  const scheduleRedirect = (target) => {
+    const next = target || "#/admin";
+    if (!next) return;
+    if (redirectTimer) clearTimeout(redirectTimer);
+    redirectTimer = setTimeout(() => { location.hash = next; }, WAIT_AFTER_SUCCESS_MS);
+  };
+
+  const handleResolved = async (me, ctx) => {
+    const actualId = me?.user_id ? String(me.user_id).trim() : "";
+    if (loginId && actualId && loginId !== actualId) {
+      ctx.rejectReason = "login_mismatch";
+      stage.showError(mismatchMessage, { autoResetMs: 2600 });
+      await restartLocal("login_mismatch");
+      return false;
+    }
+    stage.setScanning();
+    const stopPromise = stopLocal("matched");
+    await sleep(SCAN_FEEDBACK_DELAY_MS);
+    stage.showSuccess(me);
+    await stopPromise;
+    scheduleRedirect(ctx?.target || "#/admin");
+    return true;
+  };
+
+  const handleRejected = async (info = {}) => {
+    const reason = info.reason || "unknown";
+    if (reason === "require_admin") {
+      stage.showError(unauthorizedMessage, { autoResetMs: 2600 });
+      await restartLocal("require_admin");
+      return;
+    }
+    if (reason === "login_mismatch") {
+      return;
+    }
+    await restartLocal(reason || "retry");
+  };
+
+  const claimResult = await claimOnceAdmin({ autoRedirect: false, onResolved: handleResolved });
+  if (claimResult.success) {
+    await stopLocal("claim-success");
+    return;
   }
 
-  box.addEventListener("click", (ev)=>{
-    const b = ev.target.closest(".item"); if (!b) return;
-    const me = {
-      id: Number(b.getAttribute("data-id")),
-      name: b.getAttribute("data-name"),
-      user_id: b.getAttribute("data-userid"),
-      rank: b.getAttribute("data-rank"),
-      unit: b.getAttribute("data-unit"),
-      serial: b.getAttribute("data-serial"),
-      position: b.getAttribute("data-position"),
-      duty: b.getAttribute("data-position"),
-      contact: b.getAttribute("data-contact"),
-      is_admin: true
-    };
-    localStorage.setItem("AAMS_ME", JSON.stringify(me));
-    location.hash = "#/admin";
+  if (claimResult.reason === "require_admin") {
+    await handleRejected({ reason: "require_admin", source: "claim" });
+  } else if (claimResult.reason === "callback_rejected") {
+    await handleRejected({
+      reason: claimResult.context?.rejectReason || "callback_rejected",
+      source: "claim",
+      context: claimResult.context,
+      me: claimResult.me
+    });
+  } else if (claimResult.reason) {
+    await handleRejected({ reason: claimResult.reason, source: "claim" });
+  }
+
+  listenAndRedirect({
+    requireAdmin: true,
+    redirect: "#/admin",
+    autoRedirect: false,
+    onResolved: handleResolved,
+    onRejected: handleRejected
   });
 }
-

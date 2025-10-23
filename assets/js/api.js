@@ -27,6 +27,17 @@ async function _post(url, body) {
 } // ⬅️ 함수의 닫는 괄호 '}' 추가
 // ▲▲▲ [수정] _post 함수는 여기까지입니다 ▲▲▲
 
+async function _del(url, body) {
+  const opts = { method: "DELETE", headers: {} };
+  if (body !== undefined) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+  try { return await r.json(); } catch { return { ok: true }; }
+}
+
 /** =========================
  * 인원(personnel)
  * ========================= */
@@ -81,15 +92,28 @@ export { fetchMyPendingApprovals as fetchUserPending };
 
 // 집행
 export async function executeRequest({ requestId, executorId, dispatch }) {
-  // server.js: POST /api/requests/:id/execute  { executed_by }
-  return _post(`${apiBase()}/api/requests/${encodeURIComponent(requestId)}/execute`, {
-    executed_by: executorId
-  });
+
   const body = { executed_by: executorId };
   if (dispatch) {
     body.dispatch = dispatch;
   }
   return _post(`${apiBase()}/api/requests/${encodeURIComponent(requestId)}/execute`, body);
+}
+
+export async function markDispatchFailure({ requestId, reason, actorId }) {
+  const body = {};
+  if (reason) body.reason = reason;
+  if (actorId) body.actor_id = actorId;
+  return _post(`${apiBase()}/api/requests/${encodeURIComponent(requestId)}/dispatch_fail`, body);
+}
+
+export async function completeExecution({ requestId, actorId, eventId, result, statusReason }) {
+  const body = {};
+  if (actorId) body.actor_id = actorId;
+  if (eventId) body.event_id = eventId;
+  if (result) body.result = result;
+  if (statusReason) body.status_reason = statusReason;
+  return _post(`${apiBase()}/api/requests/${encodeURIComponent(requestId)}/execute_complete`, body);
 }
 
 /** =========================
@@ -482,3 +506,30 @@ export async function listFpMappings() {
   return r.ok ? r.json() : [];
 }
 
+export async function fetchFingerprintAssignments() {
+  return _get(`${FP_BASE()}/api/fp/assignments`);
+}
+
+export async function assignFingerprint({ sensorId, personId, site }) {
+  if (!Number.isInteger(sensorId)) throw new Error("sensorId required");
+  if (!Number.isInteger(personId)) throw new Error("personId required");
+  const body = { sensor_id: sensorId, person_id: personId };
+  if (site) body.site = site;
+  return _post(`${FP_BASE()}/api/fp/map`, body);
+}
+
+export async function deleteFingerprintForPerson(personId) {
+  if (!Number.isInteger(personId)) throw new Error("personId required");
+  return _del(`${FP_BASE()}/api/fp/person/${encodeURIComponent(personId)}`);
+}
+
+export async function deleteFingerprintSensor(sensorId) {
+  if (!Number.isInteger(sensorId)) throw new Error("sensorId required");
+  return _del(`${FP_BASE()}/api/fp/map/${encodeURIComponent(sensorId)}`);
+}
+
+export async function clearFingerprintMappings({ site } = {}) {
+  const base = `${FP_BASE()}/api/fp/map`;
+  const url = site ? `${base}?site=${encodeURIComponent(site)}` : base;
+  return _del(url);
+}

@@ -1,0 +1,75 @@
+<div id="top"></div>
+<main class="panel admin-fp-manage" id="admin-fingerprint">
+  <section class="fp-manage-head">
+    <h1 class="section-title">지문 관리</h1>
+    <p class="muted">지문 센서를 통해 등록, 재등록, 삭제 작업을 수행합니다.</p>
+    <div id="me-brief" class="brief compact" aria-live="polite"></div>
+    <p class="fp-summary" data-role="summary" aria-live="polite"></p>
+  </section>
+
+  <section class="fp-ops" aria-label="지문 작업">
+    <article class="card fp-ops-card" data-role="enroll-card">
+      <h2>지문 등록·재등록</h2>
+      <label class="lbl" for="fp-person-select">대상 인원</label>
+      <select class="inp" id="fp-person-select" data-role="person-select">
+        <option value="">인원을 선택하세요</option>
+      </select>
+      <p class="muted fp-person-info" data-role="person-info">대상 인원을 선택해 주세요.</p>
+      <label class="lbl" for="fp-sensor-id">지문 ID (센서 슬롯)</label>
+      <input class="inp" type="number" min="1" id="fp-sensor-id" data-role="sensor-id" placeholder="예: 12" />
+      <div class="fp-ops-actions">
+        <button class="btn primary" type="button" data-role="enroll-btn">지문 등록 시작</button>
+      </div>
+      <p class="fp-status-line" data-role="enroll-status" aria-live="polite"></p>
+    </article>
+
+    <article class="card fp-ops-card" data-role="delete-card">
+      <h2>지문 삭제</h2>
+      <p class="muted s">선택한 인원의 지문을 센서와 시스템에서 제거합니다. 모든 지문을 초기화할 수도 있습니다.</p>
+      <div class="fp-ops-actions">
+        <button class="btn secondary" type="button" data-role="delete-btn">선택 인원 지문 삭제</button>
+        <button class="btn danger" type="button" data-role="clear-btn">전체 지문 초기화</button>
+      </div>
+      <p class="fp-status-line" data-role="delete-status" aria-live="polite"></p>
+    </article>
+
+    <article class="card fp-ops-card fp-sensor-card">
+      <h2>센서 상태</h2>
+      <dl class="fp-sensor-info">
+        <div>
+          <dt>연결</dt>
+          <dd data-role="sensor-connection" data-state="unknown">확인 중…</dd>
+        </div>
+        <div>
+          <dt>저장 수량</dt>
+          <dd data-role="sensor-count">-</dd>
+        </div>
+        <div>
+          <dt>최근 이벤트</dt>
+          <dd data-role="sensor-event">-</dd>
+        </div>
+        <div>
+          <dt>진행 안내</dt>
+          <dd><span class="fp-stage-message" data-role="stage-message">센서가 대기 중입니다.</span></dd>
+        </div>
+      </dl>
+      <button class="btn ghost sm" type="button" data-role="refresh-local">상태 새로고침</button>
+    </article>
+  </section>
+
+  <section class="fp-list-section">
+    <div class="section-header">
+      <h2 class="section-title">지문 등록 현황</h2>
+      <div class="fp-list-actions">
+        <button class="btn ghost sm" type="button" data-role="refresh-btn">현황 새로고침</button>
+      </div>
+    </div>
+    <p class="muted s" id="fp-table-summary" data-role="list-summary" aria-live="polite"></p>
+    <div class="fp-table-wrap" id="fp-assignment-table"></div>
+  </section>
+</main>
+<script type="module">
+import { initAdminFingerprintManage } from "../assets/js/admin_fp.js";
+
+initAdminFingerprintManage();
+</script>

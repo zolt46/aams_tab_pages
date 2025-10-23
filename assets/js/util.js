@@ -14,6 +14,18 @@ export function getApiBase() {
   return ""; // 같은 출처 프록시 환경
 }
 
+export function getFpLocalBase() {
+  if (window.AAMS_CONFIG && typeof window.AAMS_CONFIG.LOCAL_FP_BASE === "string") {
+    return window.AAMS_CONFIG.LOCAL_FP_BASE;
+  }
+  if (typeof window.FP_LOCAL_BASE === "string" && window.FP_LOCAL_BASE.trim()) {
+    return window.FP_LOCAL_BASE.trim();
+  }
+  const saved = localStorage.getItem("AAMS_FP_LOCAL_BASE");
+  if (saved) return saved;
+  return "http://127.0.0.1:8790";
+}
+
 // === 상단 모바일 헤더 주입 ===
 /**
  * @param {object} options
@@ -24,14 +36,13 @@ export function getApiBase() {
  */
 
 // === 상단 모바일 헤더 주입 (서브 페이지용) ===
-import { logout } from "./auth.js";
- export async function mountMobileHeader({
-   title="AAMS",
-   pageType="main",
-   showLogout=true,
-   backTo="#/",
-   homeTo
- } = {}) {
+export async function mountMobileHeader({
+  title="AAMS",
+  pageType="main",
+  showLogout=true,
+  backTo="#/",
+  homeTo
+} = {}) {
 
   const top = document.getElementById("top");
   if (!top) return;
@@ -133,10 +144,7 @@ import { logout } from "./auth.js";
   // 로그아웃 버튼 공통 로직 (로그인 페이지 제외)
   if (logoutBtn && pageType !== 'login' && showLogout) {
     logoutBtn.addEventListener("click", () => {
-      try { localStorage.removeItem("AAMS_ME"); } catch {}
-      try { sessionStorage.removeItem("AAMS_ADMIN_LOGIN_ID"); } catch {}
-      location.hash = "#/";
-      location.reload();
+      void logoutKiosk();
     });
   }
 
@@ -162,6 +170,7 @@ export async function logoutKiosk() {
   } finally {
     // me 초기화/라우팅 등 기존 동작
     localStorage.removeItem("AAMS_ME");
+    try { sessionStorage.removeItem("AAMS_ADMIN_LOGIN_ID"); } catch {}
     location.hash = "#/"; // 또는 초기 페이지
   }
 }
@@ -234,12 +243,12 @@ export function renderMeBrief(me = {}) {
     </div>
     <div class="overview-stats">
       <div class="stat-card">
-        <span class="label">집행 대기</span>
-        <span class="value" id="pending-count">-</span>
+        <span class="label">총 승인</span>
+        <span class="value" data-stat="total-approved">-</span>
       </div>
       <div class="stat-card">
-        <span class="label">최근 요청</span>
-        <span class="value" id="latest-request">-</span>
+        <span class="label">최근 승인</span>
+        <span class="value" data-stat="latest-request">-</span>
       </div>
     </div>
   `;

@@ -32,6 +32,14 @@
     </div>
     <div id="pending-list" class="list pending-list" role="region" aria-live="polite"></div>
   </section>
+
+  <section class="history-section">
+    <div class="section-header">
+      <h2 class="section-title">집행 완료 이력</h2>
+      <button type="button" id="history-toggle" class="section-toggle" aria-expanded="true" aria-controls="history-list">접기</button>
+    </div>
+    <div id="history-list" class="list history-list" role="region" aria-live="polite"></div>
+  </section>
 </main>
 <script type="module">
 import { initUserMain } from "../assets/js/user.js";

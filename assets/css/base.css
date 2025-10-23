@@ -508,6 +508,274 @@ button:disabled {
   line-height: 1;
 }
 
+.pending-card .robot-stage {
+  display: none;
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(18, 28, 24, 0.88);
+  border: 1px solid rgba(126, 180, 152, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.32);
+  align-items: center;
+  gap: 18px;
+  color: rgba(231, 246, 237, 0.92);
+}
+
+.pending-card .robot-stage.is-active,
+.pending-card.robot-busy .robot-stage {
+  display: flex;
+}
+
+.pending-card.robot-busy {
+  border-color: rgba(129, 200, 167, 0.45);
+  box-shadow: 0 18px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(129, 200, 167, 0.18);
+}
+
+.robot-visual {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+}
+
+.robot-avatar {
+  position: relative;
+  width: 72px;
+  height: 80px;
+  border-radius: 20px;
+  padding: 18px 12px 20px;
+  background: linear-gradient(180deg, rgba(60, 92, 72, 0.98), rgba(24, 36, 30, 0.95));
+  border: 2px solid rgba(142, 210, 178, 0.85);
+  box-shadow: inset 0 0 0 1px rgba(12, 18, 15, 0.4), 0 16px 30px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  animation: robotFloat 3.8s ease-in-out infinite;
+}
+
+.robot-avatar::after {
+  content: "";
+  position: absolute;
+  bottom: -14px;
+  left: 50%;
+  width: 56px;
+  height: 14px;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0) 70%);
+  filter: blur(1.2px);
+  opacity: 0.55;
+}
+
+.robot-antenna {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  width: 4px;
+  height: 18px;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, rgba(142, 210, 178, 0.9), rgba(40, 64, 52, 0.9));
+  border-radius: 999px;
+}
+
+.robot-antenna::after {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: rgba(150, 236, 198, 0.9);
+  box-shadow: 0 0 12px rgba(150, 236, 198, 0.6);
+  animation: robotPulse 1.8s ease-in-out infinite;
+}
+
+.robot-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.robot-head .eye {
+  width: 14px;
+  height: 14px;
+  border-radius: 6px;
+  background: rgba(16, 24, 19, 0.95);
+  box-shadow: inset 0 0 0 2px rgba(158, 242, 204, 0.7);
+  animation: robotBlink 4.8s ease-in-out infinite;
+}
+
+.robot-head .eye.right {
+  animation-delay: 2.4s;
+}
+
+.robot-mouth {
+  width: 26px;
+  height: 6px;
+  border-radius: 8px;
+  background: rgba(161, 236, 200, 0.75);
+  box-shadow: 0 0 6px rgba(161, 236, 200, 0.6);
+}
+
+.robot-body {
+  display: flex;
+  gap: 8px;
+}
+
+.robot-body .panel-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(169, 240, 206, 0.65);
+  box-shadow: 0 0 8px rgba(169, 240, 206, 0.6);
+  animation: robotPanel 1.6s linear infinite;
+}
+
+.robot-body .panel-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.robot-body .panel-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.robot-arm {
+  position: absolute;
+  width: 12px;
+  height: 34px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(138, 206, 176, 0.92), rgba(40, 66, 52, 0.92));
+  top: 36px;
+}
+
+.robot-arm::after {
+  content: "";
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: linear-gradient(180deg, rgba(128, 190, 158, 0.92), rgba(34, 52, 42, 0.92));
+}
+
+.robot-arm.left {
+  left: -16px;
+  transform-origin: 50% 4px;
+  animation: robotWaveLeft 4.6s ease-in-out infinite;
+}
+
+.robot-arm.right {
+  right: -16px;
+  transform-origin: 50% 4px;
+  animation: robotSalute 3.4s ease-in-out infinite;
+}
+
+.robot-progress {
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  width: 70px;
+  display: flex;
+  justify-content: space-between;
+  transform: translateX(-50%);
+}
+
+.robot-progress span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(137, 209, 176, 0.3);
+  box-shadow: 0 0 6px rgba(137, 209, 176, 0.5);
+  animation: robotProgress 1.2s ease-in-out infinite;
+}
+
+.robot-progress span:nth-child(2) { animation-delay: 0.15s; }
+.robot-progress span:nth-child(3) { animation-delay: 0.3s; }
+.robot-progress span:nth-child(4) { animation-delay: 0.45s; }
+
+.robot-stage-text {
+  display: grid;
+  gap: 6px;
+}
+
+.robot-stage-label {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #e3f8ef;
+}
+
+.robot-stage-message {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: rgba(226, 232, 240, 0.82);
+}
+
+@media (max-width: 640px) {
+  .pending-card .robot-stage {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .pending-card .robot-stage-text {
+    align-items: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .robot-avatar,
+  .robot-head .eye,
+  .robot-body .panel-dot,
+  .robot-arm,
+  .robot-progress span,
+  .robot-antenna::after {
+    animation: none !important;
+  }
+}
+
+@keyframes robotFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes robotBlink {
+  0%, 4%, 100% { transform: scaleY(1); }
+  2% { transform: scaleY(0.1); }
+}
+
+@keyframes robotPanel {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@keyframes robotProgress {
+  0%, 100% { opacity: 0.25; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+@keyframes robotPulse {
+  0%, 100% { transform: translateX(-50%) scale(0.9); opacity: 0.7; }
+  50% { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+
+@keyframes robotSalute {
+  0%, 60%, 100% { transform: rotate(0deg); }
+  30% { transform: rotate(-28deg); }
+}
+
+@keyframes robotWaveLeft {
+  0%, 40%, 100% { transform: rotate(8deg); }
+  20% { transform: rotate(-12deg); }
+}
+
 .user-dashboard { display: flex; flex-direction: column; gap: 28px; }
 .admin-dashboard { display: flex; flex-direction: column; gap: 28px; }
 .admin-stats { margin-top: 16px; }
@@ -740,7 +1008,8 @@ button:disabled {
   cursor: not-allowed;
   background: rgba(255, 255, 255, 0.05);
 }
-.pending-list.collapsed { display: none; }
+.pending-list.collapsed,
+.history-list.collapsed { display: none; }
 
 #me-brief .overview {
   display: flex;

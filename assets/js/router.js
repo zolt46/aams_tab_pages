@@ -2,8 +2,11 @@ import * as Auth from "./auth.js";
 import * as FP from "./fingerprint.js";
 import * as UserPage from "./user.js";
 import * as AdminPage from "./admin.js";
+import * as ExecutePage from "./execute.js";
+import * as AdminFpPage from "./admin_fp.js";
 
 import { assertApiBaseHealthy } from "./util.js";
+import { mountStatusMonitor, unmountStatusMonitor, refreshStatusMonitor } from "./health_monitor.js";
 
 
 // 라우트별: 1) 주입할 파일 후보, 2) 주입 후 실행할 init 함수
@@ -14,6 +17,7 @@ const routes = {
   "#/fp-user":     { candidates:["./pages/fp_user.html", "./fp_user.html"],     init: FP.initFpUser },
   "#/fp-admin":    { candidates:["./pages/fp_admin.html", "./fp_admin.html"],    init: FP.initFpAdmin },
   "#/user":        { candidates:["./pages/user_main.html", "./user_main.html"],   init: UserPage.initUserMain },
+  "#/execute":     { candidates:["./pages/user_execute.html", "./user_execute.html"], init: ExecutePage.initExecutionPage },
   "#/admin":       { candidates:["./pages/admin_main.html", "./admin_main.html"],  init: AdminPage.initAdminMain },
   "#/admin-summary": {
     candidates:["./pages/admin_summary.html", "./admin_summary.html"],
@@ -22,6 +26,10 @@ const routes = {
   "#/admin-requests": {
     candidates:["./pages/admin_requests.html", "./admin_requests.html"],
     init: AdminPage.initAdminRequests
+  },
+  "#/admin-fp": {
+    candidates:["./pages/admin_fp_manage.html"],
+    init: AdminFpPage.initAdminFingerprintManage
   },
 };
 
@@ -115,7 +123,15 @@ export async function mountRoute(){
   try{
     const html = await loadFirst(config.candidates ?? []);
     app.innerHTML = html;            // 1) 조각 주입
+    if (key === "#/execute") {
+      unmountStatusMonitor();
+    } else {
+      mountStatusMonitor({ immediate: false });
+    }
     await config.init?.();           // 2) 조각용 초기화 실행 (여기가 ⬅ 핵심!)
+    if (key !== "#/execute") {
+      refreshStatusMonitor();
+    }
   }catch(e){
     const tried = config.candidates?.join(" | ") ?? "(없음)";
     showError(`라우트: ${key}\n시도: ${tried}\n오류: ${e.message}`);
