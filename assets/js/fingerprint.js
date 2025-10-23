@@ -1,5 +1,6 @@
 // assets/js/fingerprint.js
 import { mountMobileHeader, saveMe, getFpLocalBase } from "./util.js";
+import { callLocalJson } from "./local_bridge.js";
 import { openFpEventSource } from "./api.js";
 
 const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
@@ -12,12 +13,6 @@ const LED_OFF_COMMAND = { mode: "off" };
 
 const sleep = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function joinLocalUrl(base, path) {
-  const trimmed = (base || "").trim();
-  if (!trimmed) return path;
-  return trimmed.replace(/\/?$/, "") + path;
-}
-
 function createLocalIdentifySession({ timeoutMs = LOCAL_IDENTIFY_TIMEOUT_MS } = {}) {
   const base = getFpLocalBase();
   if (!base) return null;
@@ -28,9 +23,6 @@ function createLocalIdentifySession({ timeoutMs = LOCAL_IDENTIFY_TIMEOUT_MS } = 
     timeoutMs: effectiveTimeout,
     led: DEFAULT_LED_ON_COMMAND
   };
-
-  const startUrl = joinLocalUrl(base, "/identify/start");
-  const stopUrl = joinLocalUrl(base, "/identify/stop");
 
   let stopped = false;
   const listeners = [];
@@ -54,10 +46,10 @@ function createLocalIdentifySession({ timeoutMs = LOCAL_IDENTIFY_TIMEOUT_MS } = 
       if (turnOffLed) {
         body.led = LED_OFF_COMMAND;
       }
-      await fetch(stopUrl, {
+      await callLocalJson("/identify/stop", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
+        body,
+        timeoutMs: 8000
       }).catch(() => {});
     } catch (err) {
       console.warn("[AAMS][fp] 로컬 지문 세션 종료 실패", err);
@@ -70,21 +62,11 @@ function createLocalIdentifySession({ timeoutMs = LOCAL_IDENTIFY_TIMEOUT_MS } = 
   addListener("pagehide", autoStop, { once: true });
 
   const started = (async () => {
-    const res = await fetch(startUrl, {
+    const data = await callLocalJson("/identify/start", {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload)
+      body: payload,
+      timeoutMs: effectiveTimeout + 5000
     });
-    let data = null;
-    try {
-      data = await res.json();
-    } catch (err) {
-      data = null;
-    }
-    if (!res.ok || (data && data.ok === false)) {
-      const message = data?.message || data?.error || `HTTP ${res.status}`;
-      throw new Error(message);
-    }
     return data;
   })();
 

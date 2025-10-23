@@ -8,11 +8,11 @@ import {
 } from "./api.js";
 import {
   mountMobileHeader,
-  getFpLocalBase,
   getMe,
   renderMeBrief,
   saveMe
 } from "./util.js";
+import { callLocalJson } from "./local_bridge.js";
 
 const SITE = window.FP_SITE || "site-01";
 const HTML_ESCAPE = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -69,14 +69,6 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => HTML_ESCAPE[ch] || ch);
 }
 
-function joinLocalUrl(base, path) {
-  const cleanBase = String(base || "").trim().replace(/\/+$/, "");
-  if (!path.startsWith("/")) {
-    return `${cleanBase}/${path}`;
-  }
-  return `${cleanBase}${path}`;
-}
-
 function describeSensorError(code) {
   if (!code) return "센서 오류가 발생했습니다.";
   const normalized = String(code).toLowerCase();
@@ -85,6 +77,23 @@ function describeSensorError(code) {
 
 function describeError(err) {
   if (!err) return "알 수 없는 오류가 발생했습니다.";
+  if (err.code) {
+    if (err.code === "proxy_popup_blocked") {
+      return "브라우저에서 팝업을 허용해 주세요.";
+    }
+    if (err.code === "proxy_closed") {
+      return "로컬 브릿지 창이 닫혔습니다. 다시 연결해 주세요.";
+    }
+    if (err.code === "mixed_content_blocked") {
+      return "보안 정책으로 로컬 브릿지를 직접 호출할 수 없습니다. 브릿지 창 연결을 허용해 주세요.";
+    }
+    if (err.code === "timeout") {
+      return "로컬 브릿지 응답이 지연되었습니다.";
+    }
+    if (err.code === "local_fetch_failed") {
+      return "로컬 브릿지에 연결할 수 없습니다.";
+    }
+  }
   const responseError = err.response?.error || err.response?.reason;
   if (responseError) return describeSensorError(responseError);
   if (err.message) return err.message;
@@ -201,46 +210,9 @@ function setBusy(busy) {
   if (refs.sensorInput) refs.sensorInput.disabled = !!busy && state.activeOperation?.type === "enroll";
 }
 
-async function callLocal(path, { method = "POST", body, timeoutMs = 18000 } = {}) {
-  const base = getFpLocalBase();
-  if (!base) throw new Error("로컬 브릿지 주소를 설정해 주세요.");
-  const url = joinLocalUrl(base, path);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const options = { method, signal: controller.signal, headers: {} };
-  if (body !== undefined) {
-    options.headers["Content-Type"] = "application/json";
-    options.body = JSON.stringify(body);
-  }
-  let res;
-  try {
-    res = await fetch(url, options);
-  } catch (err) {
-    clearTimeout(timer);
-    if (err?.name === "AbortError") {
-      throw new Error("로컬 브릿지 응답이 지연되었습니다.");
-    }
-    throw new Error("로컬 브릿지에 연결할 수 없습니다.");
-  }
-  clearTimeout(timer);
-  let data = null;
-  try {
-    data = await res.json();
-  } catch (_) {
-    data = null;
-  }
-  if (!res.ok || (data && data.ok === false)) {
-    const reason = data?.error || data?.message || `HTTP ${res.status}`;
-    const error = new Error(reason);
-    error.response = data;
-    error.status = res.status;
-    throw error;
-  }
-  return data || { ok: true };
-}
-
 function callLocalEnroll(sensorId) {
-  return callLocal("/enroll", {
+  return callLocalJson("/enroll", {
+    method: "POST",
     body: {
       id: sensorId,
       timeoutMs: 65000,
@@ -252,22 +224,23 @@ function callLocalEnroll(sensorId) {
 }
 
 function callLocalDelete(sensorId, { allowMissing = false } = {}) {
-  return callLocal("/delete", {
+  return callLocalJson("/delete", {
+    method: "POST",
     body: { id: sensorId, allowMissing },
     timeoutMs: 18000
   });
 }
 
 function callLocalClear() {
-  return callLocal("/clear", { body: {}, timeoutMs: 30000 });
+  return callLocalJson("/clear", { method: "POST", body: {}, timeoutMs: 30000 });
 }
 
 function callLocalHealth() {
-  return callLocal("/health", { method: "GET", timeoutMs: 6000 });
+  return callLocalJson("/health", { method: "GET", timeoutMs: 6000 });
 }
 
 function callLocalCount() {
-  return callLocal("/count", { method: "GET", timeoutMs: 8000 });
+  return callLocalJson("/count", { method: "GET", timeoutMs: 8000 });
 }
 
 function updateSummary() {
