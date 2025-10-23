@@ -257,6 +257,15 @@ export async function refreshStatusMonitor() {
         const baseDetail = path ? `센서 연결됨 (${path})` : "센서 연결됨";
         localDetail = lastSummaryText ? `${baseDetail} · 마지막 ${lastSummaryText}` : baseDetail;
       }
+    } else {
+      const baseHost = (localBase || "").trim();
+      const isLoopback = /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?/i.test(baseHost);
+      const currentHost = (location.hostname || "").toLowerCase();
+      const isRemotePage = !!(currentHost && !["localhost", "127.0.0.1", "[::1]"].includes(currentHost));
+      if (isLoopback && isRemotePage) {
+        const hint = "다른 기기에서 접속 중이라면 로컬 브릿지 주소를 지정해야 합니다. 주소창 끝에 '?fp=http://브릿지PC_IP:8790'을 붙여 다시 접속하거나, 해당 값을 localStorage 'AAMS_FP_LOCAL_BASE'에 저장하세요.";
+        localDetail = localDetail ? `${localDetail} · ${hint}` : hint;
+      }
     }
     setState("local", localState, localValue, localDetail);
 
