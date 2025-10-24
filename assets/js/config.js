@@ -1,18 +1,6 @@
 (function(){
   const DEFAULT_API_BASE = "https://aams-api.onrender.com";
-  const guessLocalFpBase = (() => {
-    try {
-      const loc = window?.location;
-      if (!loc) return "";
-      if (loc.protocol === "http:" && loc.origin && loc.origin !== "null") {
-        return loc.origin;
-      }
-    } catch (err) {
-      console.warn("[AAMS][config] FP 기본 경로 추정 실패", err);
-    }
-    return "";
-  })();
-  const DEFAULT_FP_BASE = guessLocalFpBase || "http://127.0.0.1:8790";
+  const DEFAULT_FP_BASE = "http://127.0.0.1:8790";
 
   const initialConfig = (typeof window.AAMS_CONFIG === "object" && window.AAMS_CONFIG) || {};
   const config = {
