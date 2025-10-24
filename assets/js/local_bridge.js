@@ -604,6 +604,21 @@ export async function callLocalJson(path, options = {}) {
   return data || { ok: true };
 }
 
+// === 프록시 상태 노출/도움 유틸 ===
+export function isLocalBridgeProxyReady() {
+  return !!(proxyReady && proxyWindow && !proxyWindow.closed && proxyOrigin);
+}
+
+export async function ensureLocalBridgeProxyOnGesture() {
+  // 사용자가 클릭한 시점 등에 호출하여 팝업 차단을 피함
+  const base = getFpLocalBase();
+  if (!base) {
+    throw createError("로컬 브릿지 주소를 설정해 주세요.", { code: "missing_base" });
+  }
+  const url = joinLocalUrl(base, "/health");
+  return ensureProxyWindow(url);
+}
+
 export async function ensureLocalBridgeProxy() {
   const base = getFpLocalBase();
   if (!base) {

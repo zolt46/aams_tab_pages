@@ -1,5 +1,5 @@
-import { getApiBase, getFpLocalBase } from "./util.js";
-import { callLocalJson } from "./local_bridge.js";
+import { getApiBase, getFpLocalBase, normalizeLocalFpBase, setFpLocalBase } from "./util.js";
+import { callLocalJson, ensureLocalBridgeProxyOnGesture } from "./local_bridge.js";
 
 const POLL_INTERVAL_MS = 10000;
 const INITIAL_TIMEOUT_MS = 4500;
@@ -41,10 +41,15 @@ function ensureMonitorElement() {
     if (!lastUpdatedEl || !lastUpdatedEl.isConnected) {
       lastUpdatedEl = monitorEl.querySelector('[data-role="updated"]');
   if (!monitorEventsBound) {
-    monitorEl.addEventListener("click", (event) => {
+    monitorEl.addEventListener("click", async (event) => {
       const item = event.target.closest?.('.status-item[data-key="local"]');
       if (!item) return;
-      openLocalBridgePrompt();
+      try {
+        await ensureLocalBridgeProxyOnGesture();
+        await refreshStatusMonitor();
+      } catch (_) {
+        openLocalBridgePrompt();
+      }
     });
     monitorEventsBound = true;
   }

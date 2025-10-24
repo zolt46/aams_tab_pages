@@ -1,6 +1,6 @@
 // assets/js/fingerprint.js
 import { mountMobileHeader, saveMe, getFpLocalBase } from "./util.js";
-import { callLocalJson } from "./local_bridge.js";
+import { callLocalJson, ensureLocalBridgeProxyOnGesture, isLocalBridgeProxyReady } from "./local_bridge.js";
 import { openFpEventSource } from "./api.js";
 
 const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
@@ -12,6 +12,42 @@ const DEFAULT_LED_ON_COMMAND = { mode: "breathing", color: "blue", speed: 18 };
 const LED_OFF_COMMAND = { mode: "off" };
 
 const sleep = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function renderProxyConnectCta({ onConnected } = {}) {
+  const container = document.querySelector(".auth-card .auth-header") || document.querySelector(".auth-card") || document.body;
+  if (!container) return null;
+  let box = document.getElementById("fp-proxy-cta");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "fp-proxy-cta";
+    box.style.marginTop = "8px";
+    box.innerHTML = `
+      <div class="muted s" style="margin-top:4px">
+        보안 연결로 인해 로컬 브릿지 창을 한번 열어 연결해야 합니다.
+      </div>
+      <div style="margin-top:6px">
+        <button type="button" class="btn primary" data-role="fp-proxy-connect">로컬 연결</button>
+      </div>
+    `;
+    container.appendChild(box);
+  }
+  const btn = box.querySelector('[data-role="fp-proxy-connect"]');
+  if (btn) {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        await ensureLocalBridgeProxyOnGesture();
+        if (typeof onConnected === "function") await onConnected();
+        box.remove();
+      } catch (err) {
+        console.warn("[AAMS][fp] 프록시 연결 실패", err);
+        alert("로컬 브릿지 연결에 실패했습니다. 팝업 허용 후 다시 시도해 주세요.");
+        btn.disabled = false;
+      }
+    }, { once: true });
+  }
+  return box;
+}
 
 function createLocalIdentifySession({ timeoutMs = LOCAL_IDENTIFY_TIMEOUT_MS } = {}) {
   const base = getFpLocalBase();
@@ -70,7 +106,17 @@ function createLocalIdentifySession({ timeoutMs = LOCAL_IDENTIFY_TIMEOUT_MS } = 
     return data;
   })();
 
-  started.catch(() => stop({ reason: "start_failed", turnOffLed: true }));
+  started.catch((err) => {
+    // 팝업 차단/혼합 컨텐츠 등으로 시작 실패 시 안내 CTA 제공
+    if (err?.code === "proxy_popup_blocked" || err?.code === "mixed_content_blocked" || err?.code === "loopback_unreachable") {
+      renderProxyConnectCta({ onConnected: async () => {
+        try {
+          await callLocalJson("/identify/start", { method: "POST", body: payload, timeoutMs: effectiveTimeout + 5000 });
+        } catch (_) {}
+      }});
+    }
+    stop({ reason: "start_failed", turnOffLed: true });
+  });
 
   return { stop, started };
 }
@@ -340,6 +386,14 @@ export async function initFpUser() {
     localSession.started.catch((err) => {
       console.warn("[AAMS][fp] 사용자 지문 세션 시작 실패", err);
       stage.showError("지문 센서를 준비할 수 없습니다. 연결 상태를 확인해 주세요.", { autoResetMs: 0 });
+      if (err?.code === "proxy_popup_blocked" || err?.code === "mixed_content_blocked" || err?.code === "loopback_unreachable") {
+        renderProxyConnectCta({ onConnected: async () => {
+          try {
+            localSession = createLocalIdentifySession();
+            await localSession?.started;
+          } catch (_) {}
+        }});
+      }
     });
   }
 
@@ -402,6 +456,15 @@ export async function initFpAdmin() {
           localSession = null;
         }
         stage.showError("지문 센서를 준비할 수 없습니다. 연결 상태를 확인해 주세요.", { autoResetMs: 0 });
+        if (err?.code === "proxy_popup_blocked" || err?.code === "mixed_content_blocked" || err?.code === "loopback_unreachable") {
+          renderProxyConnectCta({ onConnected: async () => {
+            try {
+              const s = createLocalIdentifySession();
+              localSession = s;
+              await s?.started;
+            } catch (_) {}
+          }});
+        }
       });
     }
     return session;
