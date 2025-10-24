@@ -1,6 +1,62 @@
 (function () {
-  const DEFAULT_API_BASE = 'https://aams-api.onrender.com';
+  const REMOTE_API_BASE = 'https://aams-api.onrender.com';
   const DEFAULT_FP_BASE = '';
+
+  function isLocalHostname(hostname) {
+    if (!hostname) return false;
+    const host = hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') {
+      return true;
+    }
+    if (/^127\./.test(host)) return true;
+    if (/^192\.168\./.test(host)) return true;
+    if (/^10\./.test(host)) return true;
+    if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)) return true;
+    if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+      if (window.location.hostname.toLowerCase() === host) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function detectDefaultApiBase() {
+    if (typeof window === 'undefined' || !window.location) {
+      return REMOTE_API_BASE;
+    }
+    const { protocol, host, hostname } = window.location;
+    if (!protocol || !host) {
+      return REMOTE_API_BASE;
+    }
+    const lowerProtocol = protocol.toLowerCase();
+    if (lowerProtocol === 'http:' || isLocalHostname(hostname || '')) {
+      return `${lowerProtocol}//${host}`;
+    }
+    return REMOTE_API_BASE;
+  }
+
+  function getCurrentOrigin() {
+    if (typeof window === 'undefined' || !window.location) return '';
+    try {
+      return new URL(window.location.href).origin;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  const DEFAULT_API_BASE = detectDefaultApiBase();
+
+  let resolveReady;
+  const configReadyPromise = new Promise((resolve) => {
+    resolveReady = resolve;
+  });
+
+  function markConfigReady() {
+    if (typeof resolveReady === 'function') {
+      resolveReady();
+      resolveReady = null;
+    }
+  }
 
   const STORAGE_KEYS = {
     API: 'AAMS_API_BASE',
@@ -20,9 +76,11 @@
       return '';
     }
     const protocol = parsed.protocol.toLowerCase();
+    const hostname = parsed.hostname || '';
+    const usingLocalHttp = protocol === 'http:' && isLocalHostname(hostname);
     if (protocol === 'https:') {
       // ok
-    } else if (allowHttp && protocol === 'http:') {
+    } else if ((allowHttp || usingLocalHttp) && protocol === 'http:') {
       console.warn('[AAMS][config] 개발용 HTTP 주소 사용:', raw);
     } else {
       console.warn('[AAMS][config] HTTPS가 아닌 주소 무시됨:', raw);
@@ -103,7 +161,7 @@
 
   let manualApiLocked = false;
   let manualFpLocked = false;
-
+  let localDiscoveryAttempted = false;
   function setApiBase(candidate, { persist = false, source = 'unknown', force = false } = {}) {
     const sanitized = sanitizeHttpsUrl(candidate);
     if (!sanitized) return false;
@@ -112,6 +170,11 @@
     }
     if (config.API_BASE !== sanitized) {
       config.API_BASE = sanitized;
+      try {
+        window.dispatchEvent(
+          new CustomEvent('aams:api-base-change', { detail: { base: sanitized, source } })
+        );
+      } catch (_) {}
     }
     if (persist) {
       writeStorage(STORAGE_KEYS.API, sanitized);
@@ -234,6 +297,169 @@
     return `${trimmed}${path}`;
   }
 
+  function shouldAttemptLocalFallback(base) {
+    if (localDiscoveryAttempted) return false;
+    if (!base) return false;
+    if (manualApiLocked) return false;
+    if (typeof window === 'undefined' || !window.location) return false;
+    const hostname = window.location.hostname || '';
+    if (!isLocalHostname(hostname)) return false;
+    const origin = getCurrentOrigin();
+    return origin && base === origin;
+  }
+
+  async function discoverLocalApiBase({ failedBase = '' } = {}) {
+    if (typeof window === 'undefined' || !window.location) return '';
+    const { protocol, hostname, port: locationPort } = window.location;
+    if (!isLocalHostname(hostname || '')) return '';
+
+    const proto = protocol && protocol.toLowerCase() === 'https:' ? 'https:' : 'http:';
+    const hostSeen = new Set();
+    const hostCandidates = [];
+    const addHostCandidate = (value) => {
+      if (!value) return;
+      const trimmed = String(value).trim();
+      if (!trimmed) return;
+      const normalized = trimmed.toLowerCase();
+      if (hostSeen.has(normalized)) return;
+      hostSeen.add(normalized);
+      hostCandidates.push(trimmed);
+    };
+
+    addHostCandidate(hostname);
+    addHostCandidate('localhost');
+    addHostCandidate('127.0.0.1');
+    addHostCandidate('::1');
+    addHostCandidate('[::1]');
+
+    const portSeen = new Set();
+    const portCandidates = [];
+    const addPortCandidate = (value) => {
+      const num = Number(value);
+      if (!Number.isInteger(num) || num <= 0) return;
+      if (portSeen.has(num)) return;
+      portSeen.add(num);
+      portCandidates.push(num);
+    };
+
+    addPortCandidate(locationPort);
+    [8790, 8791, 3000, 3001, 8000, 8080, 5173, 4173, 5500].forEach(addPortCandidate);
+
+    const addHintsFromUrl = (value) => {
+      if (!value) return;
+      let parsed;
+      try {
+        parsed = new URL(value);
+      } catch (_) {
+        return;
+      }
+      if (parsed.hostname) addHostCandidate(parsed.hostname);
+      if (parsed.port) {
+        addPortCandidate(parsed.port);
+      } else if (parsed.protocol === 'http:' && proto === 'http:') {
+        // fingerprint bridge 기본 포트 추정
+        addPortCandidate(8790);
+      }
+    };
+
+    addHintsFromUrl(config?.API_BASE);
+    addHintsFromUrl(window?.AAMS_CONFIG?.API_BASE);
+    addHintsFromUrl(window?.AAMS_CONFIG?.LOCAL_FP_BASE);
+    addHintsFromUrl(window?.FP_LOCAL_BASE);
+
+    try {
+      const storedFp = readStorage(STORAGE_KEYS.FP);
+      addHintsFromUrl(storedFp);
+    } catch (_) {}
+
+    if (Array.isArray(window?.AAMS_BRIDGE_HINTS)) {
+      for (const hint of window.AAMS_BRIDGE_HINTS) {
+        addHintsFromUrl(hint);
+      }
+    }
+
+    const normalizeHost = (host) => {
+      if (!host) return '';
+      const trimmed = host.trim();
+      if (!trimmed) return '';
+      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        return trimmed;
+      }
+      return trimmed.includes(':') ? `[${trimmed}]` : trimmed;
+    };
+
+    const skipOrigin = failedBase || '';
+    const seenOrigins = new Set();
+
+    for (const hostCandidate of hostCandidates) {
+      const normalizedHost = normalizeHost(hostCandidate);
+      if (!normalizedHost) continue;
+      for (const candidatePort of portCandidates) {
+        if (!candidatePort) continue;
+        const origin = `${proto}//${normalizedHost}:${candidatePort}`;
+        if (origin === skipOrigin) continue;
+        if (seenOrigins.has(origin)) continue;
+        seenOrigins.add(origin);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2500);
+        try {
+          const res = await fetch(joinApiUrl(origin, '/health'), {
+            cache: 'no-store',
+            credentials: 'omit',
+            signal: controller.signal
+          });
+          if (res && res.ok) {
+            return origin;
+          }
+        } catch (_) {
+          // ignore failures, try next candidate
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+    }
+
+    return '';
+  }
+
+  async function attemptLocalFallback({ failedBase = '' } = {}) {
+    if (localDiscoveryAttempted) return;
+    localDiscoveryAttempted = true;
+    const candidate = await discoverLocalApiBase({ failedBase });
+    if (candidate) {
+      const applied = setApiBase(candidate, {
+        persist: true,
+        source: 'local-discovery',
+        force: true
+      });
+      if (applied) {
+        console.info('[AAMS][config] 로컬 백엔드 감지됨:', candidate);
+        await fetchRemoteEnv();
+      }
+      return;
+    }
+    const skipRemoteFallback = (() => {
+      if (typeof window === 'undefined' || !window.location) return false;
+      const { protocol, hostname } = window.location;
+      if ((protocol || '').toLowerCase() === 'http:' && isLocalHostname(hostname || '')) {
+        return true;
+      }
+      return false;
+    })();
+    if (!skipRemoteFallback && failedBase !== REMOTE_API_BASE) {
+      const applied = setApiBase(REMOTE_API_BASE, {
+        source: 'remote-fallback',
+        force: true
+      });
+      if (applied) {
+        console.info('[AAMS][config] Render 백엔드로 폴백:', REMOTE_API_BASE);
+        await fetchRemoteEnv();
+      }
+    } else if (skipRemoteFallback) {
+      console.warn('[AAMS][config] 로컬 개발 환경에서는 Render 폴백을 건너뜁니다. 로컬 서버 상태를 확인하세요.');
+    }
+  }
+
   async function fetchRemoteEnv() {
     const base = config.API_BASE || DEFAULT_API_BASE;
     const sanitizedBase = sanitizeHttpsUrl(base);
@@ -247,6 +473,9 @@
     try {
       const res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
       if (!res.ok) {
+        if (shouldAttemptLocalFallback(sanitizedBase)) {
+          await attemptLocalFallback({ failedBase: sanitizedBase });
+        }
         return;
       }
       const payload = await res.json().catch(() => null);
@@ -258,10 +487,16 @@
       }
     } catch (err) {
       console.warn('[AAMS][config] 원격 환경 정보 로드 실패', err);
+      if (shouldAttemptLocalFallback(sanitizedBase)) {
+        await attemptLocalFallback({ failedBase: sanitizedBase });
+      }
     }
   }
 
+  config.ready = configReadyPromise;
+
   window.AAMS_CONFIG = config;
+  window.AAMS_CONFIG_READY = configReadyPromise;
   window.FP_LOCAL_BASE = config.LOCAL_FP_BASE;
   window.FP_SITE = window.FP_SITE || 'site-01';
 
@@ -273,5 +508,13 @@
     applyEnv(window.__AAMS_ENV__);
   }
 
-  fetchRemoteEnv();
+  (async () => {
+    try {
+      await fetchRemoteEnv();
+    } catch (err) {
+      console.warn('[AAMS][config] 초기 환경 로딩 실패', err);
+    } finally {
+      markConfigReady();
+    }
+  })();
 })();

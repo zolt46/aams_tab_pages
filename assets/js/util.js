@@ -322,6 +322,17 @@ export function renderMeBrief(me = {}) {
 
 // === (선택) API BASE 간단 헬스체크 배너 ===
 export async function assertApiBaseHealthy() {
+  const ready = window.AAMS_CONFIG_READY;
+  if (ready && typeof ready.then === "function") {
+    try {
+      await Promise.race([
+        ready.catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 4000))
+      ]);
+    } catch (_) {
+      // 준비 대기 중 에러는 무시하고 계속 진행
+    }
+  }
   const base = getApiBase();
   if (!base) return; // 프록시 환경일 수 있음
   try {
