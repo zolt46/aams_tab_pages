@@ -1,110 +1,27 @@
-(function () {
-  const REMOTE_API_BASE = 'https://aams-api.onrender.com';
-  const DEFAULT_FP_BASE = '';
-
-  function isLocalHostname(hostname) {
-    if (!hostname) return false;
-    const host = hostname.toLowerCase();
-    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') {
-      return true;
-    }
-    if (/^127\./.test(host)) return true;
-    if (/^192\.168\./.test(host)) return true;
-    if (/^10\./.test(host)) return true;
-    if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)) return true;
-    if (typeof window !== 'undefined' && window.location && window.location.hostname) {
-      if (window.location.hostname.toLowerCase() === host) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  function detectDefaultApiBase() {
-    if (typeof window === 'undefined' || !window.location) {
-      return REMOTE_API_BASE;
-    }
-    const { protocol, host, hostname } = window.location;
-    if (!protocol || !host) {
-      return REMOTE_API_BASE;
-    }
-    const lowerProtocol = protocol.toLowerCase();
-    if (lowerProtocol === 'http:' || isLocalHostname(hostname || '')) {
-      return `${lowerProtocol}//${host}`;
-    }
-    return REMOTE_API_BASE;
-  }
-
-  function getCurrentOrigin() {
-    if (typeof window === 'undefined' || !window.location) return '';
+(function(){
+  const DEFAULT_API_BASE = "https://aams-api.onrender.com";
+  const guessLocalFpBase = (() => {
     try {
-      return new URL(window.location.href).origin;
-    } catch (_) {
-      return '';
+      const loc = window?.location;
+      if (!loc) return "";
+      if (loc.protocol === "http:" && loc.origin && loc.origin !== "null") {
+        return loc.origin;
+      }
+    } catch (err) {
+      console.warn("[AAMS][config] FP 기본 경로 추정 실패", err);
     }
-  }
+    return "";
+  })();
+  const DEFAULT_FP_BASE = guessLocalFpBase || "http://127.0.0.1:8790";
 
-  const DEFAULT_API_BASE = detectDefaultApiBase();
-
-  let resolveReady;
-  const configReadyPromise = new Promise((resolve) => {
-    resolveReady = resolve;
-  });
-
-  function markConfigReady() {
-    if (typeof resolveReady === 'function') {
-      resolveReady();
-      resolveReady = null;
-    }
-  }
-
-  const STORAGE_KEYS = {
-    API: 'AAMS_API_BASE',
-    FP: 'AAMS_FP_LOCAL_BASE',
-    FP_SOURCE: 'AAMS_FP_LOCAL_BASE_SOURCE'
+  const initialConfig = (typeof window.AAMS_CONFIG === "object" && window.AAMS_CONFIG) || {};
+  const config = {
+    API_BASE: initialConfig.API_BASE || DEFAULT_API_BASE,
+    LOCAL_FP_BASE: initialConfig.LOCAL_FP_BASE || DEFAULT_FP_BASE
   };
 
-  function sanitizeHttpsUrl(value, { allowHttp = false } = {}) {
-    if (!value) return '';
-    const raw = String(value).trim();
-    if (!raw) return '';
-    let parsed;
-    try {
-      parsed = new URL(raw);
-    } catch (err) {
-      console.warn('[AAMS][config] 잘못된 URL 무시됨:', raw);
-      return '';
-    }
-    const protocol = parsed.protocol.toLowerCase();
-    const hostname = parsed.hostname || '';
-    const usingLocalHttp = protocol === 'http:' && isLocalHostname(hostname);
-    if (protocol === 'https:') {
-      // ok
-    } else if ((allowHttp || usingLocalHttp) && protocol === 'http:') {
-      console.warn('[AAMS][config] 개발용 HTTP 주소 사용:', raw);
-    } else {
-      console.warn('[AAMS][config] HTTPS가 아닌 주소 무시됨:', raw);
-      return '';
-    }
-
-    parsed.hash = '';
-    parsed.search = '';
-    const origin = parsed.origin;
-    if (!origin) return '';
-    const pathname = parsed.pathname.replace(/\/$/, '');
-    return `${origin}${pathname}`;
-  }
-
-  function readMeta(name) {
-    if (typeof document === 'undefined') return '';
-    const el = document.querySelector(`meta[name="${name}"]`);
-    if (!el) return '';
-    const value = el.getAttribute('content');
-    return value ? value.trim() : '';
-  }
-
   let storageWarned = false;
-  function warnStorage(action, err) {
+  const warnStorage = (action, err) => {
     if (storageWarned) return;
     storageWarned = true;
     if (err) {
@@ -112,409 +29,74 @@
     } else {
       console.warn(`[AAMS][config] localStorage ${action} 실패`);
     }
-  }
+  };
 
-  function readStorage(key) {
+  const readStorage = (key) => {
     try {
       const value = localStorage.getItem(key);
-      return value == null ? '' : value;
+      return value == null ? "" : value;
     } catch (err) {
-      warnStorage('read', err);
-      return '';
+      warnStorage("read", err);
+      return "";
     }
-  }
+  };
 
-  function writeStorage(key, value) {
+  const writeStorage = (key, value) => {
     try {
-      if (value == null || value === '') {
+      if (value == null || value === "") {
         localStorage.removeItem(key);
       } else {
         localStorage.setItem(key, value);
       }
     } catch (err) {
-      warnStorage('write', err);
+      warnStorage("write", err);
     }
-  }
+  };
 
-  const params = new URLSearchParams(window.location.search || '');
-  const overrideApi = (params.get('api_base') || params.get('api') || '').trim();
-  const overrideFp = (params.get('fp_base') || params.get('fp') || params.get('local_fp') || '').trim();
-  const resetFp = params.get('reset_fp') || params.get('clear_fp');
-  const resetApi = params.get('reset_api') || params.get('clear_api');
+  const params = new URLSearchParams(window.location.search || "");
+  const overrideApi = (params.get("api_base") || params.get("api") || "").trim();
+  const overrideFp = (params.get("fp_base") || params.get("fp") || params.get("local_fp") || "").trim();
+  const resetFp = params.get("reset_fp") || params.get("clear_fp");
+  const resetApi = params.get("reset_api") || params.get("clear_api");
 
-  const initialConfig = (typeof window.AAMS_CONFIG === 'object' && window.AAMS_CONFIG) || {};
+  const storedApi = readStorage("AAMS_API_BASE").trim();
+  const storedFp = readStorage("AAMS_FP_LOCAL_BASE").trim();
 
   if (resetApi) {
-    writeStorage(STORAGE_KEYS.API, null);
+    writeStorage("AAMS_API_BASE", null);
   }
   if (resetFp) {
-    writeStorage(STORAGE_KEYS.FP, null);
-    try {
-      sessionStorage.removeItem(STORAGE_KEYS.FP_SOURCE);
-    } catch (_) {}
+    writeStorage("AAMS_FP_LOCAL_BASE", null);
   }
 
-  const config = {
-    API_BASE: DEFAULT_API_BASE,
-    LOCAL_FP_BASE: DEFAULT_FP_BASE
-  };
-
-  let manualApiLocked = false;
-  let manualFpLocked = false;
-  let localDiscoveryAttempted = false;
-  function setApiBase(candidate, { persist = false, source = 'unknown', force = false } = {}) {
-    const sanitized = sanitizeHttpsUrl(candidate);
-    if (!sanitized) return false;
-    if (!force && manualApiLocked && config.API_BASE && config.API_BASE !== sanitized) {
-      return false;
-    }
-    if (config.API_BASE !== sanitized) {
-      config.API_BASE = sanitized;
-      try {
-        window.dispatchEvent(
-          new CustomEvent('aams:api-base-change', { detail: { base: sanitized, source } })
-        );
-      } catch (_) {}
-    }
-    if (persist) {
-      writeStorage(STORAGE_KEYS.API, sanitized);
-      manualApiLocked = true;
-    }
-    window.AAMS_PUBLIC_API_BASE = sanitized;
-    return true;
+  if (overrideApi) {
+    config.API_BASE = overrideApi;
+    writeStorage("AAMS_API_BASE", overrideApi);
+  } else if (storedApi) {
+    config.API_BASE = storedApi;
   }
 
-  function setFpBase(candidate, { persist = false, source = 'unknown', force = false } = {}) {
-    const sanitized = sanitizeHttpsUrl(candidate);
-    if (!sanitized) {
-      if (candidate) {
-        console.warn('[AAMS][config] LOCAL_FP_BASE 설정 무시됨(HTTPS 필수):', candidate, source);
-      }
-      return false;
-    }
-    if (!force && manualFpLocked && config.LOCAL_FP_BASE && config.LOCAL_FP_BASE !== sanitized) {
-      return false;
-    }
-    if (config.LOCAL_FP_BASE !== sanitized) {
-      config.LOCAL_FP_BASE = sanitized;
-    }
-    if (persist) {
-      writeStorage(STORAGE_KEYS.FP, sanitized);
-      manualFpLocked = true;
-      try {
-        sessionStorage.setItem(STORAGE_KEYS.FP_SOURCE, source);
-      } catch (_) {}
-    }
-    window.FP_LOCAL_BASE = sanitized;
-    return true;
+  if (overrideFp) {
+    config.LOCAL_FP_BASE = overrideFp;
+    writeStorage("AAMS_FP_LOCAL_BASE", overrideFp);
+  } else if (storedFp) {
+    config.LOCAL_FP_BASE = storedFp;
   }
-
-  function applyStoredValues() {
-    const storedApi = readStorage(STORAGE_KEYS.API).trim();
-    if (storedApi) {
-      if (setApiBase(storedApi, { persist: false, source: 'storage', force: true })) {
-        manualApiLocked = true;
-      }
-    }
-    const storedFp = readStorage(STORAGE_KEYS.FP).trim();
-    if (storedFp) {
-      if (setFpBase(storedFp, { persist: false, source: 'storage', force: true })) {
-        manualFpLocked = true;
-      }
-    }
-  }
-
-  function applyMeta() {
-    const metaApi = readMeta('aams-api-base');
-    if (metaApi) {
-      setApiBase(metaApi, { persist: false, source: 'meta' });
-    }
-    const metaFp = readMeta('aams-fp-base');
-    if (metaFp) {
-      setFpBase(metaFp, { persist: false, source: 'meta' });
-    }
-  }
-
-  function applyInitialConfig() {
-    if (initialConfig.API_BASE) {
-      setApiBase(initialConfig.API_BASE, { source: 'initial' });
-    }
-    if (initialConfig.LOCAL_FP_BASE) {
-      setFpBase(initialConfig.LOCAL_FP_BASE, { source: 'initial' });
-    }
-  }
-
-  function applyQueryOverrides() {
-    if (overrideApi) {
-      if (setApiBase(overrideApi, { persist: true, source: 'query', force: true })) {
-        manualApiLocked = true;
-      }
-    }
-    if (overrideFp) {
-      if (setFpBase(overrideFp, { persist: true, source: 'query', force: true })) {
-        manualFpLocked = true;
-      }
-    }
-  }
-
-  function applyEnv(env, { source = 'env', allowOverride = false } = {}) {
-    if (!env || typeof env !== 'object') return;
-    const api = env.API_BASE || env.VITE_API_URL || env.VITE_APP_API_URL || env.VITE_PUBLIC_API_URL;
-    if (api) {
-      const force = allowOverride || !manualApiLocked;
-      setApiBase(api, { source, force });
-    }
-    const fp = env.LOCAL_FP_BASE || env.VITE_FP_BASE || env.VITE_LOCAL_FP_URL || env.VITE_PUBLIC_FP_URL;
-    if (fp) {
-      const force = allowOverride || !manualFpLocked;
-      const applied = setFpBase(fp, { source, force });
-      if (applied && !manualFpLocked && !allowOverride) {
-        window.dispatchEvent(
-          new CustomEvent('aams:local-base-change', { detail: { base: config.LOCAL_FP_BASE, source: 'env' } })
-        );
-      }
-    }
-    if (env.FP_SITE) {
-      window.FP_SITE = String(env.FP_SITE).trim() || window.FP_SITE;
-    }
-  }
-
-  applyInitialConfig();
-  applyMeta();
-  applyStoredValues();
-  applyQueryOverrides();
 
   if (!config.API_BASE) {
-    setApiBase(DEFAULT_API_BASE, { source: 'default' });
+    config.API_BASE = DEFAULT_API_BASE;
   }
-  if (!config.LOCAL_FP_BASE && DEFAULT_FP_BASE) {
-    setFpBase(DEFAULT_FP_BASE, { source: 'default' });
+  if (!config.LOCAL_FP_BASE) {
+    config.LOCAL_FP_BASE = DEFAULT_FP_BASE;
   }
-
-  function joinApiUrl(base, path) {
-    if (!base) return '';
-    const trimmed = base.replace(/\/+$/, '');
-    return `${trimmed}${path}`;
-  }
-
-  function shouldAttemptLocalFallback(base) {
-    if (localDiscoveryAttempted) return false;
-    if (!base) return false;
-    if (manualApiLocked) return false;
-    if (typeof window === 'undefined' || !window.location) return false;
-    const hostname = window.location.hostname || '';
-    if (!isLocalHostname(hostname)) return false;
-    const origin = getCurrentOrigin();
-    return origin && base === origin;
-  }
-
-  async function discoverLocalApiBase({ failedBase = '' } = {}) {
-    if (typeof window === 'undefined' || !window.location) return '';
-    const { protocol, hostname, port: locationPort } = window.location;
-    if (!isLocalHostname(hostname || '')) return '';
-
-    const proto = protocol && protocol.toLowerCase() === 'https:' ? 'https:' : 'http:';
-    const hostSeen = new Set();
-    const hostCandidates = [];
-    const addHostCandidate = (value) => {
-      if (!value) return;
-      const trimmed = String(value).trim();
-      if (!trimmed) return;
-      const normalized = trimmed.toLowerCase();
-      if (hostSeen.has(normalized)) return;
-      hostSeen.add(normalized);
-      hostCandidates.push(trimmed);
-    };
-
-    addHostCandidate(hostname);
-    addHostCandidate('localhost');
-    addHostCandidate('127.0.0.1');
-    addHostCandidate('::1');
-    addHostCandidate('[::1]');
-
-    const portSeen = new Set();
-    const portCandidates = [];
-    const addPortCandidate = (value) => {
-      const num = Number(value);
-      if (!Number.isInteger(num) || num <= 0) return;
-      if (portSeen.has(num)) return;
-      portSeen.add(num);
-      portCandidates.push(num);
-    };
-
-    addPortCandidate(locationPort);
-    [8790, 8791, 3000, 3001, 8000, 8080, 5173, 4173, 5500].forEach(addPortCandidate);
-
-    const addHintsFromUrl = (value) => {
-      if (!value) return;
-      let parsed;
-      try {
-        parsed = new URL(value);
-      } catch (_) {
-        return;
-      }
-      if (parsed.hostname) addHostCandidate(parsed.hostname);
-      if (parsed.port) {
-        addPortCandidate(parsed.port);
-      } else if (parsed.protocol === 'http:' && proto === 'http:') {
-        // fingerprint bridge 기본 포트 추정
-        addPortCandidate(8790);
-      }
-    };
-
-    addHintsFromUrl(config?.API_BASE);
-    addHintsFromUrl(window?.AAMS_CONFIG?.API_BASE);
-    addHintsFromUrl(window?.AAMS_CONFIG?.LOCAL_FP_BASE);
-    addHintsFromUrl(window?.FP_LOCAL_BASE);
-
-    try {
-      const storedFp = readStorage(STORAGE_KEYS.FP);
-      addHintsFromUrl(storedFp);
-    } catch (_) {}
-
-    if (Array.isArray(window?.AAMS_BRIDGE_HINTS)) {
-      for (const hint of window.AAMS_BRIDGE_HINTS) {
-        addHintsFromUrl(hint);
-      }
-    }
-
-    const normalizeHost = (host) => {
-      if (!host) return '';
-      const trimmed = host.trim();
-      if (!trimmed) return '';
-      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-        return trimmed;
-      }
-      return trimmed.includes(':') ? `[${trimmed}]` : trimmed;
-    };
-
-    const skipOrigin = failedBase || '';
-    const seenOrigins = new Set();
-
-    for (const hostCandidate of hostCandidates) {
-      const normalizedHost = normalizeHost(hostCandidate);
-      if (!normalizedHost) continue;
-      for (const candidatePort of portCandidates) {
-        if (!candidatePort) continue;
-        const origin = `${proto}//${normalizedHost}:${candidatePort}`;
-        if (origin === skipOrigin) continue;
-        if (seenOrigins.has(origin)) continue;
-        seenOrigins.add(origin);
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 2500);
-        try {
-          const res = await fetch(joinApiUrl(origin, '/health'), {
-            cache: 'no-store',
-            credentials: 'omit',
-            signal: controller.signal
-          });
-          if (res && res.ok) {
-            return origin;
-          }
-        } catch (_) {
-          // ignore failures, try next candidate
-        } finally {
-          clearTimeout(timer);
-        }
-      }
-    }
-
-    return '';
-  }
-
-  async function attemptLocalFallback({ failedBase = '' } = {}) {
-    if (localDiscoveryAttempted) return;
-    localDiscoveryAttempted = true;
-    const candidate = await discoverLocalApiBase({ failedBase });
-    if (candidate) {
-      const applied = setApiBase(candidate, {
-        persist: true,
-        source: 'local-discovery',
-        force: true
-      });
-      if (applied) {
-        console.info('[AAMS][config] 로컬 백엔드 감지됨:', candidate);
-        await fetchRemoteEnv();
-      }
-      return;
-    }
-    const skipRemoteFallback = (() => {
-      if (typeof window === 'undefined' || !window.location) return false;
-      const { protocol, hostname } = window.location;
-      if ((protocol || '').toLowerCase() === 'http:' && isLocalHostname(hostname || '')) {
-        return true;
-      }
-      return false;
-    })();
-    if (!skipRemoteFallback && failedBase !== REMOTE_API_BASE) {
-      const applied = setApiBase(REMOTE_API_BASE, {
-        source: 'remote-fallback',
-        force: true
-      });
-      if (applied) {
-        console.info('[AAMS][config] Render 백엔드로 폴백:', REMOTE_API_BASE);
-        await fetchRemoteEnv();
-      }
-    } else if (skipRemoteFallback) {
-      console.warn('[AAMS][config] 로컬 개발 환경에서는 Render 폴백을 건너뜁니다. 로컬 서버 상태를 확인하세요.');
-    }
-  }
-
-  async function fetchRemoteEnv() {
-    const base = config.API_BASE || DEFAULT_API_BASE;
-    const sanitizedBase = sanitizeHttpsUrl(base);
-    if (!sanitizedBase) return;
-    const params = new URLSearchParams();
-    if (window.FP_SITE) {
-      params.set('site', String(window.FP_SITE));
-    }
-    const suffix = params.toString();
-    const url = joinApiUrl(sanitizedBase, `/api/tab/env.json${suffix ? `?${suffix}` : ''}`);
-    try {
-      const res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
-      if (!res.ok) {
-        if (shouldAttemptLocalFallback(sanitizedBase)) {
-          await attemptLocalFallback({ failedBase: sanitizedBase });
-        }
-        return;
-      }
-      const payload = await res.json().catch(() => null);
-      if (payload?.env) {
-        applyEnv(payload.env, { source: 'remote-env' });
-      }
-      if (Array.isArray(payload?.bridge?.hints) && payload.bridge.hints.length) {
-        window.AAMS_BRIDGE_HINTS = payload.bridge.hints.slice(0, 8);
-      }
-    } catch (err) {
-      console.warn('[AAMS][config] 원격 환경 정보 로드 실패', err);
-      if (shouldAttemptLocalFallback(sanitizedBase)) {
-        await attemptLocalFallback({ failedBase: sanitizedBase });
-      }
-    }
-  }
-
-  config.ready = configReadyPromise;
 
   window.AAMS_CONFIG = config;
-  window.AAMS_CONFIG_READY = configReadyPromise;
   window.FP_LOCAL_BASE = config.LOCAL_FP_BASE;
-  window.FP_SITE = window.FP_SITE || 'site-01';
+  window.FP_SITE = window.FP_SITE || "site-01";
 
-  window.__applyAamsEnv = function applyAamsEnv(env) {
-    applyEnv(env);
-  };
-
-  if (window.__AAMS_ENV__) {
-    applyEnv(window.__AAMS_ENV__);
-  }
-
-  (async () => {
+  if (overrideFp) {
     try {
-      await fetchRemoteEnv();
-    } catch (err) {
-      console.warn('[AAMS][config] 초기 환경 로딩 실패', err);
-    } finally {
-      markConfigReady();
-    }
-  })();
+      sessionStorage.setItem("AAMS_FP_LOCAL_BASE_SOURCE", "query");
+    } catch {}
+  }
 })();

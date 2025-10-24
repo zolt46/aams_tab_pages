@@ -200,21 +200,6 @@ export async function fetchPersonnelById(id) {
   return _get(`${apiBase()}/api/personnel/${encodeURIComponent(id)}`);
 }
 
-export async function fetchBridgeHints({ site, maxAgeMs } = {}) {
-  const params = new URLSearchParams();
-  if (site) params.set("site", site);
-  if (maxAgeMs) params.set("maxAgeMs", maxAgeMs);
-  const base = apiBase();
-  const suffix = params.toString();
-  const url = `${base}/api/fp/bridge/hints${suffix ? `?${suffix}` : ""}`;
-  try {
-    return await _get(url);
-  } catch (err) {
-    console.warn("[AAMS][api] bridge hints fetch failed", err);
-    throw err;
-  }
-}
-
 export async function fetchRequestDetail(id, { force = false } = {}) {
   if (!id) throw new Error("id required");
   const cacheKey = String(id);

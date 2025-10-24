@@ -1,12 +1,8 @@
-import { getFpLocalBase, normalizeLocalFpBase, setFpLocalBase } from "./util.js";
-import { fetchBridgeHints } from "./api.js";
+import { getFpLocalBase } from "./util.js";
 
 const DEFAULT_TIMEOUT_MS = 18000;
 const PROXY_WINDOW_NAME = "aams-fp-bridge";
 const HANDSHAKE_TIMEOUT_MS = 10000;
-const DISCOVERY_RETRY_DELAY_MS = 15000;
-const DISCOVERY_HINT_TTL_MS = 5 * 60 * 1000;
-const MAX_DISCOVERY_CANDIDATES = 8;
 
 let proxyWindow = null;
 let proxyOrigin = "";
@@ -17,36 +13,6 @@ let proxyReadyResolve = null;
 let proxyReadyReject = null;
 let proxyHandshakeTimer = null;
 let requestSeq = 0;
-let discoveryPromise = null;
-let discoveryCooldownUntil = 0;
-
-function isLoopbackHostname(hostname = "") {
-  const name = hostname.toLowerCase();
-  if (name === "localhost" || name === "127.0.0.1") return true;
-  if (name === "[::1]" || name === "::1") return true;
-  if (name.startsWith("127.")) return true;
-  return false;
-}
-
-function isRemoteLoopbackBlocked(url) {
-  if (typeof window === "undefined") return false;
-  try {
-    const resolved = new URL(url, window.location.href);
-    if (!isLoopbackHostname(resolved.hostname)) {
-      return false;
-    }
-    const pageHost = window.location.hostname || "";
-    if (!pageHost) {
-      return false;
-    }
-    if (isLoopbackHostname(pageHost)) {
-      return false;
-    }
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
 const pendingProxyRequests = new Map();
 
 function createError(message, { code, response, status, cause } = {}) {
@@ -65,67 +31,6 @@ function joinLocalUrl(base, path) {
     return cleanBase.replace(/\/+$/, "") + "/" + path;
   }
   return cleanBase.replace(/\/+$/, "") + path;
-}
-
-function getSiteId() {
-  try {
-    if (typeof window !== "undefined" && window.FP_SITE) {
-      return String(window.FP_SITE);
-    }
-  } catch (_) {
-    // ignore
-  }
-  return "default";
-}
-
-function buildDiscoveryCandidates(payload) {
-  const seen = new Set();
-  const out = [];
-  const push = (value) => {
-    if (!value) return;
-    const normalized = normalizeLocalFpBase(value);
-    if (!normalized) return;
-    if (seen.has(normalized)) return;
-    seen.add(normalized);
-    out.push(normalized);
-  };
-
-  if (!payload || typeof payload !== "object") {
-    return out;
-  }
-
-  if (payload.base) {
-    push(payload.base);
-  }
-
-  const hints = Array.isArray(payload.hints) ? payload.hints : Array.isArray(payload.urlHints) ? payload.urlHints : [];
-  for (const hint of hints) {
-    push(hint);
-    if (out.length >= MAX_DISCOVERY_CANDIDATES) {
-      return out;
-    }
-  }
-
-  if (payload.hostname) {
-    push(payload.hostname);
-    const hostStr = String(payload.hostname);
-    if (payload.port) {
-      const hasPort = /:\d+$/.test(hostStr) || /\]:\d+$/.test(hostStr);
-      if (!hasPort) {
-        push(`${hostStr}:${payload.port}`);
-      }
-    }
-  }
-
-  if (Array.isArray(payload.addresses)) {
-    for (const entry of payload.addresses) {
-      if (!entry || !entry.address) continue;
-      push(entry.address);
-      if (out.length >= MAX_DISCOVERY_CANDIDATES) break;
-    }
-  }
-
-  return out.slice(0, MAX_DISCOVERY_CANDIDATES);
 }
 
 function extractOrigin(url) {
@@ -270,12 +175,6 @@ async function ensureProxyWindow(targetUrl) {
   const origin = extractOrigin(targetUrl);
   if (!origin) {
     throw createError("로컬 브릿지 주소를 확인할 수 없습니다.", { code: "invalid_origin" });
-  }
-  if (isRemoteLoopbackBlocked(targetUrl)) {
-    throw createError(
-      "현재 기기에서는 127.0.0.1 로컬 브릿지에 접근할 수 없습니다. 브릿지 PC의 IP 주소를 설정해 주세요.",
-      { code: "loopback_unreachable" }
-    );
   }
   if (proxyWindow && !proxyWindow.closed && proxyOrigin === origin) {
     if (proxyReady) return;
@@ -442,88 +341,14 @@ function buildRequestOptions(options = {}) {
   return { method, timeoutMs, headers: normalizedHeaders, body };
 }
 
-async function probeCandidate(base) {
-  const url = joinLocalUrl(base, "/health");
-  const requestOptions = buildRequestOptions({ method: "GET", timeoutMs: 4000 });
-  try {
-    if (shouldForceProxy(url)) {
-      const res = await requestViaProxy(url, requestOptions);
-      return !!(res && res.ok);
-    }
-    const res = await requestViaFetch(url, requestOptions);
-    return !!(res && res.ok);
-  } catch (error) {
-    if (error?.code === "proxy_popup_blocked") {
-      throw error;
-    }
-    return false;
-  }
-}
-
-async function attemptAutoDiscovery() {
-  const now = Date.now();
-  if (now < discoveryCooldownUntil) {
-    return null;
-  }
-  if (discoveryPromise) {
-    return discoveryPromise;
-  }
-  discoveryPromise = (async () => {
-    try {
-      let payload = null;
-      try {
-        payload = await fetchBridgeHints({ site: getSiteId(), maxAgeMs: DISCOVERY_HINT_TTL_MS });
-      } catch (err) {
-        console.warn("[AAMS][local] 로컬 브릿지 후보 조회 실패", err);
-        return null;
-      }
-      const candidates = buildDiscoveryCandidates(payload || {});
-      if (!candidates.length) {
-        return null;
-      }
-      for (const candidate of candidates) {
-        try {
-          const ok = await probeCandidate(candidate);
-          if (ok) {
-            const applied = setFpLocalBase(candidate, { source: "discovered" });
-            console.info("[AAMS][local] 로컬 브릿지 자동 발견", applied);
-            return applied;
-          }
-        } catch (error) {
-          if (error?.code === "proxy_popup_blocked") {
-            throw error;
-          }
-          console.warn("[AAMS][local] 로컬 브릿지 후보 확인 실패", candidate, error);
-        }
-      }
-      return null;
-    } finally {
-      discoveryCooldownUntil = Date.now() + DISCOVERY_RETRY_DELAY_MS;
-      discoveryPromise = null;
-    }
-  })();
-  return discoveryPromise;
-}
-
 async function makeLocalRequest(path, options = {}) {
   const base = getFpLocalBase();
   if (!base) {
     throw createError("로컬 브릿지 주소를 설정해 주세요.", { code: "missing_base" });
   }
-
-  let url = joinLocalUrl(base, path);
-  if (isRemoteLoopbackBlocked(url)) {
-    const discovered = await attemptAutoDiscovery();
-    if (discovered) {
-      url = joinLocalUrl(discovered, path);
-    } else {
-      throw createError(
-        "현재 기기에서는 127.0.0.1 로컬 브릿지에 접근할 수 없습니다. 브릿지 PC의 IP 주소를 설정해 주세요.",
-        { code: "loopback_unreachable" }
-      );
-    }
-  }
+  const url = joinLocalUrl(base, path);
   const requestOptions = buildRequestOptions(options);
+
   if (shouldForceProxy(url)) {
     return requestViaProxy(url, requestOptions);
   }
@@ -561,9 +386,6 @@ export async function callLocalJson(path, options = {}) {
       throw createError("로컬 브릿지 응답이 지연되었습니다.", { code: "timeout", cause: error });
     }
     if (error?.code === "proxy_popup_blocked") {
-      throw error;
-    }
-    if (error?.code === "loopback_unreachable") {
       throw error;
     }
     if (error?.code === "proxy_post_failed" || error?.code === "proxy_handshake_timeout" || error?.code === "proxy_handshake_failed" || error?.code === "proxy_closed") {
@@ -604,33 +426,12 @@ export async function callLocalJson(path, options = {}) {
   return data || { ok: true };
 }
 
-// === 프록시 상태 노출/도움 유틸 ===
-export function isLocalBridgeProxyReady() {
-  return !!(proxyReady && proxyWindow && !proxyWindow.closed && proxyOrigin);
-}
-
-export async function ensureLocalBridgeProxyOnGesture() {
-  // 사용자가 클릭한 시점 등에 호출하여 팝업 차단을 피함
-  const base = getFpLocalBase();
-  if (!base) {
-    throw createError("로컬 브릿지 주소를 설정해 주세요.", { code: "missing_base" });
-  }
-  const url = joinLocalUrl(base, "/health");
-  return ensureProxyWindow(url);
-}
-
 export async function ensureLocalBridgeProxy() {
   const base = getFpLocalBase();
   if (!base) {
     throw createError("로컬 브릿지 주소를 설정해 주세요.", { code: "missing_base" });
   }
   const url = joinLocalUrl(base, "/health");
-  if (isRemoteLoopbackBlocked(url)) {
-    throw createError(
-      "현재 기기에서는 127.0.0.1 로컬 브릿지에 접근할 수 없습니다. 브릿지 PC의 IP 주소를 설정해 주세요.",
-      { code: "loopback_unreachable" }
-    );
-  }
   await ensureProxyWindow(url);
 }
 
