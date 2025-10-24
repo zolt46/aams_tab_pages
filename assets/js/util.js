@@ -74,7 +74,7 @@ export function normalizeLocalFpBase(rawValue) {
   }
 }
 
-export function setFpLocalBase(value) {
+export function setFpLocalBase(value, { source = "manual" } = {}) {
   const normalized = normalizeLocalFpBase(value);
   if (window.AAMS_CONFIG && typeof window.AAMS_CONFIG === "object") {
     window.AAMS_CONFIG.LOCAL_FP_BASE = normalized;
@@ -82,7 +82,7 @@ export function setFpLocalBase(value) {
   window.FP_LOCAL_BASE = normalized;
   tryStoreLocalBase(normalized);
   try {
-    sessionStorage.setItem("AAMS_FP_LOCAL_BASE_SOURCE", "manual");
+    sessionStorage.setItem("AAMS_FP_LOCAL_BASE_SOURCE", source || "manual");
   } catch (err) {
     console.warn("[AAMS][util] 로컬 브릿지 주소 출처 저장 실패", err);
   }
