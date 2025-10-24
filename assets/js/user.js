@@ -3,8 +3,7 @@ import {
   fetchMyPendingApprovals,
   fetchRequestDetail
 } from "./api.js";
-import { getMe, renderMeBrief, mountMobileHeader } from "./util.js";
-import { callLocalJson } from "./local_bridge.js";
+import { getMe, renderMeBrief, mountMobileHeader, getFpLocalBase } from "./util.js";
 import { setExecuteContext } from "./execute_context.js";
 
 const numberFormatter = new Intl.NumberFormat("ko-KR");
@@ -900,25 +899,44 @@ function extractAmmoPayload(row = {}, detail = {}) {
   return ammoItems;
 }
 
+function joinLocalUrl(base, path) {
+  const cleanBase = (base || "").trim();
+  if (!cleanBase) return path;
+  return cleanBase.replace(/\/+$/, "") + path;
+}
+
 async function dispatchRobotViaLocal(payload, { timeoutMs = 90000 } = {}) {
   if (!payload || typeof payload !== "object") {
     throw new Error("장비 명령 데이터가 없습니다.");
   }
 
+  const base = getFpLocalBase();
+  const url = joinLocalUrl(base, "/robot/execute");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
-    return await callLocalJson("/robot/execute", {
+    const res = await fetch(url, {
       method: "POST",
-      body: payload,
-      timeoutMs
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal
     });
+    let data = null;
+    try { data = await res.json(); } catch (_) { data = null; }
+    const ok = data?.ok !== false && res.ok;
+    if (!ok) {
+      const reason = data?.error || data?.job?.message || data?.job?.error || `HTTP ${res.status}`;
+      throw new Error(reason);
+    }
+    return data;
   } catch (err) {
-    if (err?.code === "timeout") {
+    if (err?.name === "AbortError") {
       throw new Error("로컬 브릿지 응답 시간 초과");
     }
-    if (err?.code === "local_fetch_failed") {
-      throw new Error("로컬 브릿지에 연결할 수 없습니다.");
-    }
     throw err instanceof Error ? err : new Error(String(err));
+  } finally {
+    clearTimeout(timer);
   }
 }
 

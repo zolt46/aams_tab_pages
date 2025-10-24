@@ -1,5 +1,4 @@
 import { getApiBase, getFpLocalBase } from "./util.js";
-import { callLocalJson } from "./local_bridge.js";
 
 const POLL_INTERVAL_MS = 10000;
 const INITIAL_TIMEOUT_MS = 4500;
@@ -117,16 +116,6 @@ async function fetchJson(url, { timeoutMs = INITIAL_TIMEOUT_MS } = {}) {
   }
 }
 
-async function fetchLocalBridgeHealth({ timeoutMs = 6000 } = {}) {
-  try {
-    const data = await callLocalJson("/health", { method: "GET", timeoutMs });
-    return { ok: true, status: 200, data };
-  } catch (error) {
-    const status = typeof error?.status === "number" ? error.status : 0;
-    return { ok: false, status, error };
-  }
-}
-
 function describeError(err) {
   if (!err) return "응답 없음";
   if (typeof err === "string") return err;
@@ -186,7 +175,7 @@ export async function refreshStatusMonitor() {
     const [http, db, local] = await Promise.all([
       fetchJson(resolveUrl(apiBase, "/health")),
       fetchJson(resolveUrl(apiBase, "/health/db"), { timeoutMs: 5200 }),
-      fetchLocalBridgeHealth({ timeoutMs: 6500 })
+      fetchJson(resolveUrl(localBase, "/health"))
     ]);
 
     const now = Date.now();
