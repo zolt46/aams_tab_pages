@@ -10,6 +10,7 @@ let lastUpdatedEl = null;
 let pollTimer = null;
 let refreshing = false;
 let initialized = false;
+let monitorEventsBound = false;
 
 function resolveUrl(base, path) {
   const cleanBase = (base || "").trim();
@@ -17,10 +18,37 @@ function resolveUrl(base, path) {
   return cleanBase.replace(/\/?$/, "") + path;
 }
 
+function openLocalBridgePrompt() {
+  const current = getFpLocalBase();
+  const example = current || "http://192.168.0.10:8790";
+  const next = window.prompt(
+    "로컬 브릿지(지문 센서 서버) 주소를 입력하세요.\n예: http://192.168.0.10:8790",
+    example
+  );
+  if (next == null) return;
+  const normalized = normalizeLocalFpBase(next);
+  if (!normalized) {
+    alert("입력한 주소를 확인할 수 없습니다. 다시 시도해 주세요.");
+    return;
+  }
+  const applied = setFpLocalBase(normalized);
+  alert(`로컬 브릿지 주소가 '${applied}'로 저장되었습니다. 페이지를 새로고침합니다.`);
+  location.reload();
+}
+
 function ensureMonitorElement() {
   if (monitorEl && monitorEl.dataset.bound === "1") {
     if (!lastUpdatedEl || !lastUpdatedEl.isConnected) {
       lastUpdatedEl = monitorEl.querySelector('[data-role="updated"]');
+  if (!monitorEventsBound) {
+    monitorEl.addEventListener("click", (event) => {
+      const item = event.target.closest?.('.status-item[data-key="local"]');
+      if (!item) return;
+      openLocalBridgePrompt();
+    });
+    monitorEventsBound = true;
+  }
+
     }
     return monitorEl;
   }
@@ -273,9 +301,16 @@ export async function refreshStatusMonitor() {
       const isLoopback = /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?/i.test(baseHost);
       const currentHost = (location.hostname || "").toLowerCase();
       const isRemotePage = !!(currentHost && !["localhost", "127.0.0.1", "[::1]"].includes(currentHost));
+      const baseLabel = baseHost ? `현재 설정: ${baseHost}` : "";
       if (isLoopback && isRemotePage) {
         const hint = "다른 기기에서 접속 중이라면 로컬 브릿지 주소를 지정해야 합니다. 주소창 끝에 '?fp=http://브릿지PC_IP:8790'을 붙여 다시 접속하거나, 해당 값을 localStorage 'AAMS_FP_LOCAL_BASE'에 저장하세요.";
-        localDetail = localDetail ? `${localDetail} · ${hint}` : hint;
+        const guidance = `${hint} 카드(로컬)를 눌러 직접 주소를 입력할 수도 있습니다.`;
+        localDetail = [localDetail, baseLabel, guidance].filter(Boolean).join(" · ");
+      } else {
+        localDetail = [localDetail, baseLabel].filter(Boolean).join(" · ");
+      }
+      if (!localDetail) {
+        localDetail = baseLabel || "연결 오류";
       }
     }
     setState("local", localState, localValue, localDetail);
@@ -313,4 +348,5 @@ export function unmountStatusMonitor() {
   }
   monitorEl = null;
   lastUpdatedEl = null;
+  monitorEventsBound = false;
 }

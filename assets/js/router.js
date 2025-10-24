@@ -54,7 +54,8 @@ function safeReplaceHash(nextHash, { addHistory = false } = {}){
   if (location.hash === nextHash) return;
   try {
     if (!addHistory && typeof history?.replaceState === "function") {
-      history.replaceState(null, "", nextHash);
+      const base = `${location.pathname || ""}${location.search || ""}`;
+      history.replaceState(null, "", `${base}${nextHash}`);
     } else {
       location.hash = nextHash;
     }

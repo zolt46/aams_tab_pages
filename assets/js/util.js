@@ -21,9 +21,75 @@ export function getFpLocalBase() {
   if (typeof window.FP_LOCAL_BASE === "string" && window.FP_LOCAL_BASE.trim()) {
     return window.FP_LOCAL_BASE.trim();
   }
-  const saved = localStorage.getItem("AAMS_FP_LOCAL_BASE");
-  if (saved) return saved;
+  try {
+    const saved = localStorage.getItem("AAMS_FP_LOCAL_BASE");
+    if (saved) return saved;
+  } catch (err) {
+    console.warn("[AAMS][util] 로컬 브릿지 주소 저장소 접근 실패", err);
+  }
   return "http://127.0.0.1:8790";
+}
+
+function tryStoreLocalBase(value) {
+  try {
+    if (value) {
+      localStorage.setItem("AAMS_FP_LOCAL_BASE", value);
+    } else {
+      localStorage.removeItem("AAMS_FP_LOCAL_BASE");
+    }
+  } catch (err) {
+    console.warn("[AAMS][util] 로컬 브릿지 주소 저장 실패", err);
+  }
+}
+
+function isProbablyIpv6(value = "") {
+  return value.includes(":") && !value.includes("//");
+}
+
+export function normalizeLocalFpBase(rawValue) {
+  if (rawValue == null) return "";
+  let value = String(rawValue).trim();
+  if (!value) return "";
+
+  // IPv6 address가 괄호 없이 들어오면 감싸준다.
+  if (isProbablyIpv6(value) && !value.startsWith("[") && !value.endsWith("]")) {
+    value = `[${value}]`;
+  }
+
+  if (!/^[a-z]+:\/\//i.test(value)) {
+    value = `http://${value}`;
+  }
+
+  try {
+    const url = new URL(value);
+    if (!url.port && url.protocol === "http:") {
+      url.port = "8790";
+    }
+    const pathname = url.pathname?.replace(/\/+$/, "") || "";
+    const search = url.search || "";
+    return `${url.protocol}//${url.host}${pathname}${search}`;
+  } catch (err) {
+    console.warn("[AAMS][util] 로컬 브릿지 주소 정규화 실패", err);
+    return value;
+  }
+}
+
+export function setFpLocalBase(value) {
+  const normalized = normalizeLocalFpBase(value);
+  if (window.AAMS_CONFIG && typeof window.AAMS_CONFIG === "object") {
+    window.AAMS_CONFIG.LOCAL_FP_BASE = normalized;
+  }
+  window.FP_LOCAL_BASE = normalized;
+  tryStoreLocalBase(normalized);
+  try {
+    sessionStorage.setItem("AAMS_FP_LOCAL_BASE_SOURCE", "manual");
+  } catch (err) {
+    console.warn("[AAMS][util] 로컬 브릿지 주소 출처 저장 실패", err);
+  }
+  window.dispatchEvent(new CustomEvent("aams:local-base-change", {
+    detail: { base: normalized }
+  }));
+  return normalized;
 }
 
 // === 상단 모바일 헤더 주입 ===

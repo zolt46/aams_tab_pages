@@ -13,6 +13,34 @@ let proxyReadyResolve = null;
 let proxyReadyReject = null;
 let proxyHandshakeTimer = null;
 let requestSeq = 0;
+
+function isLoopbackHostname(hostname = "") {
+  const name = hostname.toLowerCase();
+  if (name === "localhost" || name === "127.0.0.1") return true;
+  if (name === "[::1]" || name === "::1") return true;
+  if (name.startsWith("127.")) return true;
+  return false;
+}
+
+function isRemoteLoopbackBlocked(url) {
+  if (typeof window === "undefined") return false;
+  try {
+    const resolved = new URL(url, window.location.href);
+    if (!isLoopbackHostname(resolved.hostname)) {
+      return false;
+    }
+    const pageHost = window.location.hostname || "";
+    if (!pageHost) {
+      return false;
+    }
+    if (isLoopbackHostname(pageHost)) {
+      return false;
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 const pendingProxyRequests = new Map();
 
 function createError(message, { code, response, status, cause } = {}) {
@@ -175,6 +203,12 @@ async function ensureProxyWindow(targetUrl) {
   const origin = extractOrigin(targetUrl);
   if (!origin) {
     throw createError("로컬 브릿지 주소를 확인할 수 없습니다.", { code: "invalid_origin" });
+  }
+  if (isRemoteLoopbackBlocked(targetUrl)) {
+    throw createError(
+      "현재 기기에서는 127.0.0.1 로컬 브릿지에 접근할 수 없습니다. 브릿지 PC의 IP 주소를 설정해 주세요.",
+      { code: "loopback_unreachable" }
+    );
   }
   if (proxyWindow && !proxyWindow.closed && proxyOrigin === origin) {
     if (proxyReady) return;
@@ -349,6 +383,13 @@ async function makeLocalRequest(path, options = {}) {
   const url = joinLocalUrl(base, path);
   const requestOptions = buildRequestOptions(options);
 
+  if (isRemoteLoopbackBlocked(url)) {
+    throw createError(
+      "현재 기기에서는 127.0.0.1 로컬 브릿지에 접근할 수 없습니다. 브릿지 PC의 IP 주소를 설정해 주세요.",
+      { code: "loopback_unreachable" }
+    );
+  }
+
   if (shouldForceProxy(url)) {
     return requestViaProxy(url, requestOptions);
   }
@@ -386,6 +427,9 @@ export async function callLocalJson(path, options = {}) {
       throw createError("로컬 브릿지 응답이 지연되었습니다.", { code: "timeout", cause: error });
     }
     if (error?.code === "proxy_popup_blocked") {
+      throw error;
+    }
+    if (error?.code === "loopback_unreachable") {
       throw error;
     }
     if (error?.code === "proxy_post_failed" || error?.code === "proxy_handshake_timeout" || error?.code === "proxy_handshake_failed" || error?.code === "proxy_closed") {
@@ -432,6 +476,12 @@ export async function ensureLocalBridgeProxy() {
     throw createError("로컬 브릿지 주소를 설정해 주세요.", { code: "missing_base" });
   }
   const url = joinLocalUrl(base, "/health");
+  if (isRemoteLoopbackBlocked(url)) {
+    throw createError(
+      "현재 기기에서는 127.0.0.1 로컬 브릿지에 접근할 수 없습니다. 브릿지 PC의 IP 주소를 설정해 주세요.",
+      { code: "loopback_unreachable" }
+    );
+  }
   await ensureProxyWindow(url);
 }
 
