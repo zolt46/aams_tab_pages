@@ -101,18 +101,27 @@
     LOCAL_FP_BASE: DEFAULT_FP_BASE
   };
 
-  function setApiBase(candidate, { persist = false, source = 'unknown' } = {}) {
+  let manualApiLocked = false;
+  let manualFpLocked = false;
+
+  function setApiBase(candidate, { persist = false, source = 'unknown', force = false } = {}) {
     const sanitized = sanitizeHttpsUrl(candidate);
     if (!sanitized) return false;
-    config.API_BASE = sanitized;
+    if (!force && manualApiLocked && config.API_BASE && config.API_BASE !== sanitized) {
+      return false;
+    }
+    if (config.API_BASE !== sanitized) {
+      config.API_BASE = sanitized;
+    }
     if (persist) {
       writeStorage(STORAGE_KEYS.API, sanitized);
+      manualApiLocked = true;
     }
     window.AAMS_PUBLIC_API_BASE = sanitized;
     return true;
   }
 
-  function setFpBase(candidate, { persist = false, source = 'unknown' } = {}) {
+  function setFpBase(candidate, { persist = false, source = 'unknown', force = false } = {}) {
     const sanitized = sanitizeHttpsUrl(candidate);
     if (!sanitized) {
       if (candidate) {
@@ -120,9 +129,15 @@
       }
       return false;
     }
-    config.LOCAL_FP_BASE = sanitized;
+    if (!force && manualFpLocked && config.LOCAL_FP_BASE && config.LOCAL_FP_BASE !== sanitized) {
+      return false;
+    }
+    if (config.LOCAL_FP_BASE !== sanitized) {
+      config.LOCAL_FP_BASE = sanitized;
+    }
     if (persist) {
       writeStorage(STORAGE_KEYS.FP, sanitized);
+      manualFpLocked = true;
       try {
         sessionStorage.setItem(STORAGE_KEYS.FP_SOURCE, source);
       } catch (_) {}
@@ -134,11 +149,15 @@
   function applyStoredValues() {
     const storedApi = readStorage(STORAGE_KEYS.API).trim();
     if (storedApi) {
-      setApiBase(storedApi, { persist: false, source: 'storage' });
+      if (setApiBase(storedApi, { persist: false, source: 'storage', force: true })) {
+        manualApiLocked = true;
+      }
     }
     const storedFp = readStorage(STORAGE_KEYS.FP).trim();
     if (storedFp) {
-      setFpBase(storedFp, { persist: false, source: 'storage' });
+      if (setFpBase(storedFp, { persist: false, source: 'storage', force: true })) {
+        manualFpLocked = true;
+      }
     }
   }
 
@@ -164,22 +183,36 @@
 
   function applyQueryOverrides() {
     if (overrideApi) {
-      setApiBase(overrideApi, { persist: true, source: 'query' });
+      if (setApiBase(overrideApi, { persist: true, source: 'query', force: true })) {
+        manualApiLocked = true;
+      }
     }
     if (overrideFp) {
-      setFpBase(overrideFp, { persist: true, source: 'query' });
+      if (setFpBase(overrideFp, { persist: true, source: 'query', force: true })) {
+        manualFpLocked = true;
+      }
     }
   }
 
-  function applyEnv(env) {
+  function applyEnv(env, { source = 'env', allowOverride = false } = {}) {
     if (!env || typeof env !== 'object') return;
     const api = env.API_BASE || env.VITE_API_URL || env.VITE_APP_API_URL || env.VITE_PUBLIC_API_URL;
     if (api) {
-      setApiBase(api, { source: 'env' });
+      const force = allowOverride || !manualApiLocked;
+      setApiBase(api, { source, force });
     }
     const fp = env.LOCAL_FP_BASE || env.VITE_FP_BASE || env.VITE_LOCAL_FP_URL || env.VITE_PUBLIC_FP_URL;
     if (fp) {
-      setFpBase(fp, { source: 'env' });
+      const force = allowOverride || !manualFpLocked;
+      const applied = setFpBase(fp, { source, force });
+      if (applied && !manualFpLocked && !allowOverride) {
+        window.dispatchEvent(
+          new CustomEvent('aams:local-base-change', { detail: { base: config.LOCAL_FP_BASE, source: 'env' } })
+        );
+      }
+    }
+    if (env.FP_SITE) {
+      window.FP_SITE = String(env.FP_SITE).trim() || window.FP_SITE;
     }
   }
 
@@ -195,6 +228,39 @@
     setFpBase(DEFAULT_FP_BASE, { source: 'default' });
   }
 
+  function joinApiUrl(base, path) {
+    if (!base) return '';
+    const trimmed = base.replace(/\/+$/, '');
+    return `${trimmed}${path}`;
+  }
+
+  async function fetchRemoteEnv() {
+    const base = config.API_BASE || DEFAULT_API_BASE;
+    const sanitizedBase = sanitizeHttpsUrl(base);
+    if (!sanitizedBase) return;
+    const params = new URLSearchParams();
+    if (window.FP_SITE) {
+      params.set('site', String(window.FP_SITE));
+    }
+    const suffix = params.toString();
+    const url = joinApiUrl(sanitizedBase, `/api/tab/env.json${suffix ? `?${suffix}` : ''}`);
+    try {
+      const res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
+      if (!res.ok) {
+        return;
+      }
+      const payload = await res.json().catch(() => null);
+      if (payload?.env) {
+        applyEnv(payload.env, { source: 'remote-env' });
+      }
+      if (Array.isArray(payload?.bridge?.hints) && payload.bridge.hints.length) {
+        window.AAMS_BRIDGE_HINTS = payload.bridge.hints.slice(0, 8);
+      }
+    } catch (err) {
+      console.warn('[AAMS][config] 원격 환경 정보 로드 실패', err);
+    }
+  }
+
   window.AAMS_CONFIG = config;
   window.FP_LOCAL_BASE = config.LOCAL_FP_BASE;
   window.FP_SITE = window.FP_SITE || 'site-01';
@@ -206,4 +272,6 @@
   if (window.__AAMS_ENV__) {
     applyEnv(window.__AAMS_ENV__);
   }
+
+  fetchRemoteEnv();
 })();
