@@ -163,12 +163,13 @@ function ensureSite(site) {
   return value;
 }
 
-function handleWsOpen() {
+function handleWsOpen(event) {
+  const currentWs = event.target;
   resetReconnectDelay();
   wsAuthenticated = false;
   const site = wsSite || defaultSite();
   try {
-    ws.send(JSON.stringify({ type: "AUTH_UI", site }));
+    currentWs.send(JSON.stringify({ type: "AUTH_UI", site }));
   } catch (err) {
     console.warn("[AAMS][ws] auth send failed", err);
   }
@@ -177,9 +178,11 @@ function handleWsOpen() {
 
 function handleWsClose(evt) {
   emitWsState("close", { code: evt?.code, reason: evt?.reason, site: wsSite });
-  wsAuthenticated = false;
-  ws = null;
-  window.AAMS_WS = null;
+  if (ws === evt.target) {
+    wsAuthenticated = false;
+    ws = null;
+    window.AAMS_WS = null;
+  }
   rejectAllPending(new Error('ws_closed'));
   scheduleWsReconnect();
 }
