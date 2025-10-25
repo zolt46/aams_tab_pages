@@ -4,11 +4,13 @@ import {
   deleteFingerprintForPerson,
   clearFingerprintMappings,
   fetchPersonnelById,
-  openFpEventSource
+  openFpEventSource,
+  connectWebSocket,
+  sendWebSocketRequest,
+  onWebSocketEvent
 } from "./api.js";
 import {
   mountMobileHeader,
-  getFpLocalBase,
   getMe,
   renderMeBrief,
   saveMe
@@ -67,14 +69,6 @@ const refs = {
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => HTML_ESCAPE[ch] || ch);
-}
-
-function joinLocalUrl(base, path) {
-  const cleanBase = String(base || "").trim().replace(/\/+$/, "");
-  if (!path.startsWith("/")) {
-    return `${cleanBase}/${path}`;
-  }
-  return `${cleanBase}${path}`;
 }
 
 function describeSensorError(code) {
@@ -201,73 +195,79 @@ function setBusy(busy) {
   if (refs.sensorInput) refs.sensorInput.disabled = !!busy && state.activeOperation?.type === "enroll";
 }
 
-async function callLocal(path, { method = "POST", body, timeoutMs = 18000 } = {}) {
-  const base = getFpLocalBase();
-  if (!base) throw new Error("로컬 브릿지 주소를 설정해 주세요.");
-  const url = joinLocalUrl(base, path);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const options = { method, signal: controller.signal, headers: {} };
-  if (body !== undefined) {
-    options.headers["Content-Type"] = "application/json";
-    options.body = JSON.stringify(body);
+function sendBridgeCommand(message, options = {}) {
+  const baseMessage = { site: state.site || SITE, ...message };
+  const responseTypes = options.responseType
+    ? (Array.isArray(options.responseType) ? [...options.responseType] : [options.responseType])
+    : [];
+  if (!responseTypes.includes('ERROR')) {
+    responseTypes.push('ERROR');
   }
-  let res;
-  try {
-    res = await fetch(url, options);
-  } catch (err) {
-    clearTimeout(timer);
-    if (err?.name === "AbortError") {
-      throw new Error("로컬 브릿지 응답이 지연되었습니다.");
-    }
-    throw new Error("로컬 브릿지에 연결할 수 없습니다.");
-  }
-  clearTimeout(timer);
-  let data = null;
-  try {
-    data = await res.json();
-  } catch (_) {
-    data = null;
-  }
-  if (!res.ok || (data && data.ok === false)) {
-    const reason = data?.error || data?.message || `HTTP ${res.status}`;
-    const error = new Error(reason);
-    error.response = data;
-    error.status = res.status;
-    throw error;
-  }
-  return data || { ok: true };
+  const { promise } = sendWebSocketRequest(baseMessage, { ...options, responseType: responseTypes });
+  return promise;
 }
 
-function callLocalEnroll(sensorId) {
-  return callLocal("/enroll", {
-    body: {
-      id: sensorId,
-      timeoutMs: 65000,
-      led: { mode: "breathing", color: "purple", speed: 18 },
-      ledOff: { mode: "off" }
-    },
+async function requestEnroll(sensorId) {
+  const message = {
+    type: "FP_ENROLL_REQUEST",
+    sensorId,
+    led: { mode: "breathing", color: "purple", speed: 18 },
+    ledOff: { mode: "off" },
     timeoutMs: 70000
+  };
+  const response = await sendBridgeCommand(message, { responseType: "FP_ENROLL_RESULT", timeoutMs: 75000 });
+  return response;
+}
+
+async function requestDelete(sensorId, { allowMissing = false } = {}) {
+  const response = await sendBridgeCommand({
+    type: "FP_DELETE_REQUEST",
+    sensorId,
+    allowMissing,
+    timeoutMs: 20000
+  }, { responseType: "FP_DELETE_RESULT", timeoutMs: 22000, rejectOnError: false });
+  if (response?.ok === false) {
+    const err = new Error(response.error || "delete_failed");
+    err.response = response;
+    throw err;
+  }
+  return response;
+}
+
+async function requestClear() {
+  const response = await sendBridgeCommand({
+    type: "FP_CLEAR_REQUEST",
+    timeoutMs: 32000
+  }, { responseType: "FP_CLEAR_RESULT", timeoutMs: 33000 });
+  return response;
+}
+
+async function requestHealth() {
+  const response = await sendBridgeCommand({ type: "FP_HEALTH_REQUEST" }, {
+    responseType: ["FP_HEALTH", "FP_HEALTH_ERROR"],
+    timeoutMs: 6000,
+    rejectOnError: false
   });
+  if (!response || response.type === "FP_HEALTH_ERROR" || response.ok === false) {
+    const err = new Error(response?.error || "health_failed");
+    err.response = response;
+    throw err;
+  }
+  return response.status || response.payload || response;
 }
 
-function callLocalDelete(sensorId, { allowMissing = false } = {}) {
-  return callLocal("/delete", {
-    body: { id: sensorId, allowMissing },
-    timeoutMs: 18000
+async function requestCount() {
+  const response = await sendBridgeCommand({ type: "FP_COUNT_REQUEST" }, {
+    responseType: "FP_COUNT_RESULT",
+    timeoutMs: 8000,
+    rejectOnError: false
   });
-}
-
-function callLocalClear() {
-  return callLocal("/clear", { body: {}, timeoutMs: 30000 });
-}
-
-function callLocalHealth() {
-  return callLocal("/health", { method: "GET", timeoutMs: 6000 });
-}
-
-function callLocalCount() {
-  return callLocal("/count", { method: "GET", timeoutMs: 8000 });
+  if (response?.ok === false) {
+    const err = new Error(response.error || "count_failed");
+    err.response = response;
+    throw err;
+  }
+  return response.count ?? response.result?.count ?? null;
 }
 
 function updateSummary() {
@@ -432,9 +432,9 @@ async function refreshLocalStatus({ silent = false } = {}) {
     refs.sensorConnection.dataset.state = "unknown";
   }
   try {
-    const [health, countRes] = await Promise.all([
-      callLocalHealth(),
-      callLocalCount().catch(() => null)
+    const [health, countValue] = await Promise.all([
+      requestHealth(),
+      requestCount().catch(() => null)
     ]);
     const connected = !!health?.serial?.connected;
     if (refs.sensorConnection) {
@@ -444,8 +444,8 @@ async function refreshLocalStatus({ silent = false } = {}) {
       refs.sensorConnection.dataset.state = connected ? "online" : "offline";
     }
     if (refs.sensorCount) {
-      const countValue = countRes?.result?.count ?? countRes?.count ?? health?.identify?.last?.count;
-      refs.sensorCount.textContent = Number.isFinite(countValue) ? String(countValue) : "-";
+      const total = Number.isFinite(countValue) ? countValue : (health?.identify?.last?.count ?? null);
+      refs.sensorCount.textContent = Number.isFinite(total) ? String(total) : "-";
     }
   } catch (err) {
     if (refs.sensorConnection) {
@@ -561,12 +561,12 @@ async function handleEnroll() {
   setBusy(true);
 
   try {
-    await callLocalEnroll(sensorId);
+    await requestEnroll(sensorId);
     setOperationStatus("enroll", "센서 응답을 확인하는 중입니다…", { level: "info" });
     await assignFingerprint({ sensorId, personId: assignment.person_id, site: state.site });
     if (assignment.sensor_id && assignment.sensor_id !== sensorId) {
       try {
-        await callLocalDelete(assignment.sensor_id, { allowMissing: true });
+        await requestDelete(assignment.sensor_id, { allowMissing: true });
       } catch (cleanupError) {
         console.warn("[AAMS][admin-fp] 이전 지문 삭제 실패", cleanupError);
       }
@@ -606,7 +606,7 @@ async function handleDelete() {
   updateStageMessage("센서 지문을 삭제하고 있습니다.", { level: "info", autoClear: 6000 });
 
   try {
-    await callLocalDelete(assignment.sensor_id, { allowMissing: true });
+    await requestDelete(assignment.sensor_id, { allowMissing: true });
     await deleteFingerprintForPerson(assignment.person_id);
     await loadAssignments({ silent: true });
     await refreshLocalStatus({ silent: true });
@@ -637,7 +637,7 @@ async function handleClear() {
   updateStageMessage("센서 초기화 중입니다. 잠시만 기다려 주세요.", { level: "info", autoClear: 8000 });
 
   try {
-    await callLocalClear();
+    await requestClear();
     await clearFingerprintMappings({ site: state.site });
     await loadAssignments({ silent: true });
     await refreshLocalStatus({ silent: true });
@@ -690,6 +690,8 @@ export async function initAdminFingerprintManage() {
     homeTo: "#/admin"
   });
 
+  connectWebSocket(state.site || SITE);
+
   refs.personSelect = document.querySelector('[data-role="person-select"]');
   refs.sensorInput = document.querySelector('[data-role="sensor-id"]');
   refs.personInfo = document.querySelector('[data-role="person-info"]');
@@ -733,4 +735,20 @@ export async function initAdminFingerprintManage() {
   await loadAssignments({ silent: false });
   await refreshLocalStatus({ silent: true });
   setupEventSource();
+  const offStatus = onWebSocketEvent("FP_STATUS", (message) => {
+    if (!message || (message.site && message.site !== state.site)) return;
+    const serial = message.serial || {};
+    const connected = !!serial.connected;
+    if (refs.sensorConnection) {
+      refs.sensorConnection.textContent = connected
+        ? serial.path || "연결됨"
+        : "오프라인";
+      refs.sensorConnection.dataset.state = connected ? "online" : "offline";
+    }
+    if (refs.sensorCount && Number.isFinite(message?.count)) {
+      refs.sensorCount.textContent = String(message.count);
+    }
+  });
+
+  window.addEventListener("beforeunload", () => { try { offStatus(); } catch (_) {} }, { once: true });
 }

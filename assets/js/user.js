@@ -1,12 +1,15 @@
 // assets/js/user.js
 import {
   fetchMyPendingApprovals,
-  fetchRequestDetail
+  fetchRequestDetail,
+  connectWebSocket,
+  sendWebSocketRequest
 } from "./api.js";
-import { getMe, renderMeBrief, mountMobileHeader, getFpLocalBase } from "./util.js";
+import { getMe, renderMeBrief, mountMobileHeader } from "./util.js"
 import { setExecuteContext } from "./execute_context.js";
 
 const numberFormatter = new Intl.NumberFormat("ko-KR");
+const SITE = window.FP_SITE || "site-01";
 const detailCache = new Map();
 
 const STATUS_METADATA = {
@@ -101,6 +104,8 @@ function getLatestApprovalTimestamp(row = {}) {
 
 export async function initUserMain() {
   await mountMobileHeader({ title: "사용자", pageType: "main", showLogout: true });
+
+  connectWebSocket(SITE);
 
   const me = getMe();
   renderMeBrief(me);
@@ -899,44 +904,56 @@ function extractAmmoPayload(row = {}, detail = {}) {
   return ammoItems;
 }
 
-function joinLocalUrl(base, path) {
-  const cleanBase = (base || "").trim();
-  if (!cleanBase) return path;
-  return cleanBase.replace(/\/+$/, "") + path;
-}
-
 async function dispatchRobotViaLocal(payload, { timeoutMs = 90000 } = {}) {
   if (!payload || typeof payload !== "object") {
     throw new Error("장비 명령 데이터가 없습니다.");
   }
 
-  const base = getFpLocalBase();
-  const url = joinLocalUrl(base, "/robot/execute");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  connectWebSocket(SITE);
+  const requestPayload = {
+    type: "ROBOT_EXECUTE",
+    payload: { ...payload },
+    timeoutMs
+  };
+
+  const { requestId, promise } = sendWebSocketRequest(requestPayload, {
+    responseType: ["ROBOT_EVENT", "ERROR"],
+    timeoutMs,
+    match(message) {
+      if (!message) return false;
+      if (message.type === "ERROR") return true;
+      if (message.type !== "ROBOT_EVENT") return false;
+      const job = message.job || {};
+      if (job.requestId && payload.requestId && job.requestId !== payload.requestId) return false;
+      return message.final || job.final || job.status === "completed" || job.status === "succeeded" || job.status === "failed";
+    },
+    rejectOnError: false
+  });
 
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-    let data = null;
-    try { data = await res.json(); } catch (_) { data = null; }
-    const ok = data?.ok !== false && res.ok;
-    if (!ok) {
-      const reason = data?.error || data?.job?.message || data?.job?.error || `HTTP ${res.status}`;
-      throw new Error(reason);
+    const message = await promise;
+    if (!message) {
+      throw new Error("로봇 명령 응답이 없습니다.");
     }
-    return data;
-  } catch (err) {
-    if (err?.name === "AbortError") {
+    if (message.type === "ERROR") {
+      throw new Error(message.error || message.reason || "robot_failed");
+    }
+    if (message.error && !message.job) {
+      throw new Error(message.error || "robot_failed");
+    }
+    const job = message.job || {};
+    if (message.ok === false || job.status === "failed") {
+      const reason = message.error || job.error || job.message || "robot_failed";
+      const err = new Error(reason);
+      err.response = message;
+      throw err;
+    }
+    return { ok: true, requestId, job, final: true };
+  } catch (error) {
+    if (error?.code === "timeout" || error?.message === "ws_timeout") {
       throw new Error("로컬 브릿지 응답 시간 초과");
     }
-    throw err instanceof Error ? err : new Error(String(err));
-  } finally {
-    clearTimeout(timer);
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }
 

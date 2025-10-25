@@ -14,18 +14,6 @@ export function getApiBase() {
   return ""; // 같은 출처 프록시 환경
 }
 
-export function getFpLocalBase() {
-  if (window.AAMS_CONFIG && typeof window.AAMS_CONFIG.LOCAL_FP_BASE === "string") {
-    return window.AAMS_CONFIG.LOCAL_FP_BASE;
-  }
-  if (typeof window.FP_LOCAL_BASE === "string" && window.FP_LOCAL_BASE.trim()) {
-    return window.FP_LOCAL_BASE.trim();
-  }
-  const saved = localStorage.getItem("AAMS_FP_LOCAL_BASE");
-  if (saved) return saved;
-  return "http://127.0.0.1:8790";
-}
-
 // === 상단 모바일 헤더 주입 ===
 /**
  * @param {object} options

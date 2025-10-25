@@ -8,6 +8,330 @@ function apiBase() {
   return getApiBase() || "";
 }
 
+function wsBase() {
+  const cfg = window.AAMS_CONFIG || {};
+  if (cfg.WSS_BASE && typeof cfg.WSS_BASE === "string" && cfg.WSS_BASE.trim()) {
+    return cfg.WSS_BASE.trim();
+  }
+  const base = cfg.API_BASE || "";
+  if (base.startsWith("https://")) return base.replace(/^https:/i, "wss:");
+  if (base.startsWith("http://")) return base.replace(/^http:/i, "ws:");
+  if (typeof window !== "undefined" && window.location) {
+    const origin = window.location.origin || "";
+    if (origin.startsWith("https://")) return origin.replace(/^https:/i, "wss:");
+    if (origin.startsWith("http://")) return origin.replace(/^http:/i, "ws:");
+  }
+  return "";
+}
+
+const wsMessageHandlers = new Set();
+const wsTypeHandlers = new Map();
+const wsStateHandlers = {
+  open: new Set(),
+  close: new Set(),
+  error: new Set(),
+  auth: new Set()
+};
+
+let ws = null;
+let wsSite = null;
+let wsAuthenticated = false;
+let wsReconnectTimer = null;
+let wsReconnectDelay = 2000;
+const wsQueue = [];
+let wsRequestCounter = 0;
+const pendingRequests = new Map();
+
+const defaultSite = () => (window.FP_SITE || "site-01");
+
+function emitWsState(event, payload) {
+  const handlers = wsStateHandlers[event];
+  if (!handlers) return;
+  handlers.forEach((handler) => {
+    try { handler(payload); }
+    catch (err) { console.warn(`[AAMS][ws] ${event} handler error`, err); }
+  });
+}
+
+function emitWsMessage(message) {
+  wsMessageHandlers.forEach((handler) => {
+    try { handler(message); }
+    catch (err) { console.warn("[AAMS][ws] message handler error", err); }
+  });
+  if (message && message.type) {
+    const set = wsTypeHandlers.get(message.type);
+    if (set) {
+      set.forEach((handler) => {
+        try { handler(message); }
+        catch (err) { console.warn(`[AAMS][ws] handler error for ${message.type}`, err); }
+      });
+    }
+  }
+}
+
+function rejectAllPending(reason) {
+  if (!pendingRequests.size) return;
+  const error = reason instanceof Error ? reason : new Error(String(reason || 'ws_closed'));
+  pendingRequests.forEach((entry, key) => {
+    if (entry?.timer) clearTimeout(entry.timer);
+    try { entry.reject(error); }
+    catch (err) { console.warn('[AAMS][ws] pending reject error', err); }
+    pendingRequests.delete(key);
+  });
+}
+
+function maybeResolvePending(message) {
+  const requestId = message?.requestId;
+  if (!requestId || !pendingRequests.has(requestId)) return;
+  const entry = pendingRequests.get(requestId);
+  const { responseTypes, match, rejectOnError = true, timer } = entry;
+  const typeOk = !responseTypes || responseTypes.has(message.type);
+  let matchOk = true;
+  if (match && typeof match === 'function') {
+    try {
+      matchOk = !!match(message);
+    } catch (err) {
+      console.warn('[AAMS][ws] pending match error', err);
+      matchOk = false;
+    }
+  }
+  if (!typeOk || !matchOk) return;
+
+  pendingRequests.delete(requestId);
+  if (timer) clearTimeout(timer);
+
+  const isError = message?.type === 'ERROR' || message?.ok === false;
+  if (isError && rejectOnError !== false) {
+    const err = new Error(message?.error || message?.reason || 'ws_error');
+    err.response = message;
+    err.code = message?.error || message?.code || 'ws_error';
+    try { entry.reject(err); }
+    catch (rejectErr) { console.warn('[AAMS][ws] pending reject error', rejectErr); }
+    return;
+  }
+
+  try { entry.resolve(message); }
+  catch (resolveErr) { console.warn('[AAMS][ws] pending resolve error', resolveErr); }
+}
+
+function flushWsQueue() {
+  if (!wsAuthenticated) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  while (wsQueue.length) {
+    const payload = wsQueue.shift();
+    const site = payload.site || wsSite || defaultSite();
+    try {
+      ws.send(JSON.stringify({ ...payload, site }));
+    } catch (err) {
+      console.warn("[AAMS][ws] send failed, requeueing", err);
+      wsQueue.unshift(payload);
+      try { ws.close(); } catch (_) {}
+      break;
+    }
+  }
+}
+
+function scheduleWsReconnect() {
+  if (wsReconnectTimer) return;
+  const base = wsBase();
+  if (!base) return;
+  wsReconnectTimer = setTimeout(() => {
+    wsReconnectTimer = null;
+    wsReconnectDelay = Math.min(wsReconnectDelay * 1.5, 15000);
+    try { connectWebSocket(wsSite); }
+    catch (err) { console.warn("[AAMS][ws] reconnect failed", err); }
+  }, wsReconnectDelay);
+}
+
+function resetReconnectDelay() {
+  wsReconnectDelay = 2000;
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
+  }
+}
+
+function getWsUrl() {
+  const base = wsBase();
+  if (!base) return "";
+  return `${base.replace(/\/+$/, "")}/ws`;
+}
+
+function ensureSite(site) {
+  const value = typeof site === "string" && site.trim() ? site.trim() : defaultSite();
+  wsSite = value;
+  return value;
+}
+
+function handleWsOpen() {
+  resetReconnectDelay();
+  wsAuthenticated = false;
+  const site = wsSite || defaultSite();
+  try {
+    ws.send(JSON.stringify({ type: "AUTH_UI", site }));
+  } catch (err) {
+    console.warn("[AAMS][ws] auth send failed", err);
+  }
+  emitWsState("open", { site });
+}
+
+function handleWsClose(evt) {
+  emitWsState("close", { code: evt?.code, reason: evt?.reason, site: wsSite });
+  wsAuthenticated = false;
+  ws = null;
+  window.AAMS_WS = null;
+  rejectAllPending(new Error('ws_closed'));
+  scheduleWsReconnect();
+}
+
+function handleWsError(evt) {
+  emitWsState("error", evt);
+}
+
+function handleWsMessage(event) {
+  const raw = event?.data;
+  if (!raw) return;
+  let message;
+  try {
+    message = typeof raw === "string" ? JSON.parse(raw) : JSON.parse(String(raw));
+  } catch (err) {
+    console.warn("[AAMS][ws] invalid message", err);
+    return;
+  }
+
+  if (message.type === "AUTH_ACK") {
+    if (message.role === "ui") {
+      wsAuthenticated = true;
+      flushWsQueue();
+      emitWsState("auth", message);
+    }
+  } else if (message.type === "PING") {
+    sendWebSocketMessage({ type: "PONG" });
+  }
+
+  emitWsMessage(message);
+  maybeResolvePending(message);
+}
+
+export function connectWebSocket(site = defaultSite()) {
+  ensureSite(site);
+  const url = getWsUrl();
+  if (!url) {
+    console.warn("[AAMS][ws] WSS_BASE가 설정되지 않았습니다.");
+    return null;
+  }
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    return ws;
+  }
+
+  if (ws) {
+    try { ws.close(); } catch (_) {}
+  }
+
+  try {
+    ws = new WebSocket(url);
+  } catch (err) {
+    console.warn("[AAMS][ws] 연결 실패", err);
+    scheduleWsReconnect();
+    return null;
+  }
+
+  window.AAMS_WS = ws;
+  wsAuthenticated = false;
+
+  ws.addEventListener("open", handleWsOpen);
+  ws.addEventListener("close", handleWsClose);
+  ws.addEventListener("error", handleWsError);
+  ws.addEventListener("message", handleWsMessage);
+
+  return ws;
+}
+
+export function getWebSocket() {
+  return ws;
+}
+
+export function onWebSocketMessage(handler) {
+  if (typeof handler !== "function") return () => {};
+  wsMessageHandlers.add(handler);
+  return () => wsMessageHandlers.delete(handler);
+}
+
+export function onWebSocketEvent(type, handler) {
+  if (!type || typeof handler !== "function") return () => {};
+  const key = String(type);
+  if (!wsTypeHandlers.has(key)) {
+    wsTypeHandlers.set(key, new Set());
+  }
+  const set = wsTypeHandlers.get(key);
+  set.add(handler);
+  return () => {
+    set.delete(handler);
+    if (!set.size) wsTypeHandlers.delete(key);
+  };
+}
+
+export function onWebSocketState(event, handler) {
+  if (!wsStateHandlers[event] || typeof handler !== "function") return () => {};
+  const set = wsStateHandlers[event];
+  set.add(handler);
+  return () => set.delete(handler);
+}
+
+export function sendWebSocketMessage(message) {
+  if (!message || typeof message !== "object") return false;
+  const payload = { ...message };
+  if (!payload.site) payload.site = wsSite || defaultSite();
+
+  if (ws && ws.readyState === WebSocket.OPEN && wsAuthenticated) {
+    try {
+      ws.send(JSON.stringify(payload));
+      return true;
+    } catch (err) {
+      console.warn("[AAMS][ws] send 실패, 큐에 저장합니다", err);
+      wsQueue.push(payload);
+      try { ws.close(); } catch (_) {}
+      return false;
+    }
+  }
+
+  wsQueue.push(payload);
+  if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+    connectWebSocket(payload.site);
+  }
+  return false;
+}
+
+export function sendWebSocketRequest(message, { responseType, match, timeoutMs = 15000, rejectOnError = true } = {}) {
+  if (!message || typeof message !== 'object') {
+    throw new Error('message_required');
+  }
+  const requestId = message.requestId && String(message.requestId).trim()
+    ? String(message.requestId).trim()
+    : `req-${Date.now()}-${++wsRequestCounter}`;
+  const payload = { ...message, requestId };
+  if (!payload.site) payload.site = wsSite || defaultSite();
+  const responseTypes = responseType
+    ? (Array.isArray(responseType) ? new Set(responseType) : new Set([responseType]))
+    : null;
+  let timer = null;
+  const promise = new Promise((resolve, reject) => {
+    if (timeoutMs && timeoutMs > 0) {
+      timer = setTimeout(() => {
+        pendingRequests.delete(requestId);
+        const err = new Error('ws_timeout');
+        err.code = 'timeout';
+        err.requestId = requestId;
+        reject(err);
+      }, timeoutMs);
+    }
+    pendingRequests.set(requestId, { resolve, reject, timer, responseTypes, match, rejectOnError });
+  });
+  sendWebSocketMessage(payload);
+  return { requestId, promise };
+}
+
 async function _get(url) {
   const r = await fetch(url); // credentials 옵션 제거됨
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
@@ -489,13 +813,6 @@ async function fetchRequestDetails(ids, { concurrency = 4 } = {}) {
 // assets/js/api.js 맨 아래 근처에 추가
 const FP_BASE = () => getApiBase() || "";
 
-export function openFpEventSource({ site="default", onEvent }) {
-  const since = Number(localStorage.getItem("AAMS_LOGOUT_AT") || 0);
-  const es = new EventSource(`${getApiBase()}/api/fp/stream?site=${encodeURIComponent(site)}&since=${since}`);
-  es.onmessage = ev => { try { onEvent?.(JSON.parse(ev.data||"{}")); } catch {} };
-  return es;
-}
-
 export async function fetchFpLast(site = "default") {
   const r = await fetch(`${FP_BASE()}/api/fp/last?site=${encodeURIComponent(site)}`);
   return r.ok ? r.json() : null;
@@ -504,6 +821,23 @@ export async function fetchFpLast(site = "default") {
 export async function listFpMappings() {
   const r = await fetch(`${FP_BASE()}/api/fp/map`);
   return r.ok ? r.json() : [];
+}
+
+export function openFpEventSource({ site = "default", onEvent } = {}) {
+  connectWebSocket(site);
+  const unsubscribe = onWebSocketEvent("FP_EVENT", (message) => {
+    if (message?.site && message.site !== site) return;
+    if (typeof onEvent === "function") {
+      const payload = message?.payload ?? message;
+      try { onEvent(payload); }
+      catch (err) { console.warn("[AAMS][fp] event handler error", err); }
+    }
+  });
+  return {
+    close() {
+      try { unsubscribe(); } catch (_) {}
+    }
+  };
 }
 
 export async function fetchFingerprintAssignments() {

@@ -1,8 +1,10 @@
-import { getApiBase, getFpLocalBase } from "./util.js";
+import { getApiBase } from "./util.js";
+import { connectWebSocket, sendWebSocketRequest } from "./api.js"
 
 const POLL_INTERVAL_MS = 10000;
 const INITIAL_TIMEOUT_MS = 4500;
 const numberFormatter = new Intl.NumberFormat("ko-KR");
+const SITE = window.FP_SITE || "site-01";
 
 let monitorEl = null;
 let lastUpdatedEl = null;
@@ -116,6 +118,48 @@ async function fetchJson(url, { timeoutMs = INITIAL_TIMEOUT_MS } = {}) {
   }
 }
 
+async function fetchBridgeHealth({ timeoutMs = 6000 } = {}) {
+  connectWebSocket(SITE);
+  try {
+    const { promise } = sendWebSocketRequest({ type: "FP_HEALTH_REQUEST", site: SITE }, {
+      responseType: ["FP_HEALTH", "FP_HEALTH_ERROR"],
+      timeoutMs,
+      rejectOnError: false
+    });
+    const message = await promise;
+    if (message && message.type === "FP_HEALTH" && message.ok !== false) {
+      const data = message.status || message.payload || message;
+      return { ok: true, status: 200, data };
+    }
+    const err = new Error(message?.error || "health_failed");
+    err.response = message;
+    return { ok: false, status: 503, error: err };
+  } catch (error) {
+    return { ok: false, status: 0, error };
+  }
+}
+
+async function fetchBridgeCount({ timeoutMs = 6000 } = {}) {
+  connectWebSocket(SITE);
+  try {
+    const { promise } = sendWebSocketRequest({ type: "FP_COUNT_REQUEST", site: SITE }, {
+      responseType: "FP_COUNT_RESULT",
+      timeoutMs,
+      rejectOnError: false
+    });
+    const message = await promise;
+    if (message && message.ok !== false) {
+      const value = message.count ?? message.result?.count ?? null;
+      return { ok: true, count: Number.isFinite(value) ? Number(value) : null };
+    }
+    const err = new Error(message?.error || "count_failed");
+    err.response = message;
+    return { ok: false, error: err };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
 function describeError(err) {
   if (!err) return "응답 없음";
   if (typeof err === "string") return err;
@@ -171,11 +215,11 @@ export async function refreshStatusMonitor() {
 
   try {
     const apiBase = getApiBase();
-    const localBase = getFpLocalBase();
-    const [http, db, local] = await Promise.all([
+    const [http, db, local, count] = await Promise.all([
       fetchJson(resolveUrl(apiBase, "/health")),
       fetchJson(resolveUrl(apiBase, "/health/db"), { timeoutMs: 5200 }),
-      fetchJson(resolveUrl(localBase, "/health"))
+      fetchBridgeHealth(),
+      fetchBridgeCount().catch((error) => ({ ok: false, error }))
     ]);
 
     const now = Date.now();
@@ -216,6 +260,7 @@ export async function refreshStatusMonitor() {
       const path = local.data?.serial?.path;
       const activeSummaryText = formatRobotSummary(activeRobot?.summary);
       const lastSummaryText = formatRobotSummary(lastRobot?.summary);
+      const templateCount = Number.isFinite(count?.count) ? count.count : null;
 
       if (!serialConnected) {
         localState = "degraded";
@@ -254,18 +299,17 @@ export async function refreshStatusMonitor() {
       } else {
         localState = "online";
         localValue = "대기 중";
-        const baseDetail = path ? `센서 연결됨 (${path})` : "센서 연결됨";
+        const detailParts = [];
+        detailParts.push(path ? `센서 연결됨 (${path})` : "센서 연결됨");
+        if (templateCount !== null) {
+          detailParts.push(`등록 ${templateCount}건`);
+        }
+        const baseDetail = detailParts.join(" · ");
         localDetail = lastSummaryText ? `${baseDetail} · 마지막 ${lastSummaryText}` : baseDetail;
       }
     } else {
-      const baseHost = (localBase || "").trim();
-      const isLoopback = /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?/i.test(baseHost);
-      const currentHost = (location.hostname || "").toLowerCase();
-      const isRemotePage = !!(currentHost && !["localhost", "127.0.0.1", "[::1]"].includes(currentHost));
-      if (isLoopback && isRemotePage) {
-        const hint = "다른 기기에서 접속 중이라면 로컬 브릿지 주소를 지정해야 합니다. 주소창 끝에 '?fp=http://브릿지PC_IP:8790'을 붙여 다시 접속하거나, 해당 값을 localStorage 'AAMS_FP_LOCAL_BASE'에 저장하세요.";
-        localDetail = localDetail ? `${localDetail} · ${hint}` : hint;
-      }
+      const hint = "브릿지 PC에서 AAMS_LOCAL_SERVER가 실행 중인지와 Render 백엔드(WebSocket) 연결 상태를 확인하세요.";
+      localDetail = localDetail ? `${localDetail} · ${hint}` : hint;
     }
     setState("local", localState, localValue, localDetail);
 
