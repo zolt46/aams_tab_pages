@@ -8,8 +8,16 @@ const WAIT_AFTER_SUCCESS_MS = 2000;
 const SCAN_FEEDBACK_DELAY_MS = 420;
 const DEFAULT_LED_ON_COMMAND = { mode: "breathing", color: "blue", speed: 18 };
 
+const SUCCESS_STOP_REASONS = new Set(["matched", "claim-success"]);
+
 const sleep = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function extractSessionReason(message) {
+  if (!message || typeof message !== "object") return "";
+  const session = message.session || message.payload?.session || null;
+  const reason = session?.reason || message.reason;
+  return typeof reason === "string" ? reason.trim() : "";
+}
 
 function formatDisplayName(me = {}, fallback = "사용자") {
   const rank = me?.rank ? String(me.rank).trim() : "";
@@ -300,6 +308,8 @@ export async function initFpUser() {
     }),
     onWebSocketEvent("FP_SESSION_STOPPED", (message) => {
       if (message?.site && message.site !== SITE) return;
+      const reason = extractSessionReason(message);
+      if (SUCCESS_STOP_REASONS.has(reason)) return;
       stage.setWaiting();
     }),
     onWebSocketEvent("FP_SESSION_ERROR", (message) => {
@@ -395,6 +405,8 @@ export async function initFpAdmin() {
     }),
     onWebSocketEvent("FP_SESSION_STOPPED", (message) => {
       if (message?.site && message.site !== SITE) return;
+      const reason = extractSessionReason(message);
+      if (SUCCESS_STOP_REASONS.has(reason)) return;
       stage.setWaiting();
     }),
     onWebSocketEvent("FP_SESSION_ERROR", (message) => {
