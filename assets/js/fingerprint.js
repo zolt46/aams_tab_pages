@@ -388,7 +388,7 @@ export async function initFpAdmin() {
   const handleRejected = async (info = {}) => {
     const reason = info.reason || "unknown";
     if (reason === "require_admin") {
-      stage.showError(unauthorizedMessage, { autoResetMs: 2600 });
+      stage.showError(unauthorizedMessage, { autoResetMs: 5000 }); //경고 출력 및 재로그인 대기 시간
       sendStart()
       return;
     }
