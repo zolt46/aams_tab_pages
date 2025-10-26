@@ -208,6 +208,17 @@ function sendBridgeCommand(message, options = {}) {
 }
 
 async function requestEnroll(sensorId) {
+  try {
+    await sendBridgeCommand({
+      type: "FP_DELETE_REQUEST",
+      sensorId,
+      allowMissing: true,
+      timeoutMs: 15000
+    }, { responseType: "FP_DELETE_RESULT", timeoutMs: 17000, rejectOnError: false });
+  } catch (cleanupError) {
+    console.warn("[AAMS][admin-fp] 센서 슬롯 정리 실패", cleanupError);
+  }
+
   const message = {
     type: "FP_ENROLL_REQUEST",
     sensorId,

@@ -916,6 +916,7 @@ async function dispatchRobotViaLocal(payload, { timeoutMs = 90000 } = {}) {
     timeoutMs
   };
 
+  let wsRequestId = null;
   const { requestId, promise } = sendWebSocketRequest(requestPayload, {
     responseType: ["ROBOT_EVENT", "ERROR"],
     timeoutMs,
@@ -924,11 +925,20 @@ async function dispatchRobotViaLocal(payload, { timeoutMs = 90000 } = {}) {
       if (message.type === "ERROR") return true;
       if (message.type !== "ROBOT_EVENT") return false;
       const job = message.job || {};
-      if (job.requestId && payload.requestId && job.requestId !== payload.requestId) return false;
+      const expectedIds = new Set();
+      if (wsRequestId) expectedIds.add(String(wsRequestId));
+      const payloadRequestId = requestPayload.payload?.requestId ?? requestPayload.payload?.request_id;
+      if (payloadRequestId != null) expectedIds.add(String(payloadRequestId));
+      if (message.requestId != null) expectedIds.add(String(message.requestId));
+      const jobRequestId = job.requestId ?? job.request_id ?? job.requestID;
+      if (expectedIds.size && jobRequestId != null && !expectedIds.has(String(jobRequestId))) {
+        return false;
+      }
       return message.final || job.final || job.status === "completed" || job.status === "succeeded" || job.status === "failed";
     },
     rejectOnError: false
   });
+  wsRequestId = requestId;
 
   try {
     const message = await promise;
