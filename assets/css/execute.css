@@ -49,8 +49,161 @@
   color: #ff9fb0;
 }
 
+.execute-status[data-level="warning"] {
+  color: #ffd18a;
+}
+
 .execute-status[data-level="success"] {
   color: #d6fdf4;
+}
+
+.execute-stage[data-lockdown="true"] {
+  background: radial-gradient(circle at center, rgba(60, 0, 0, 0.95) 0%, rgba(20, 0, 0, 0.95) 60%, rgba(0, 0, 0, 0.98) 100%);
+  color: #ffb6c1;
+}
+
+.execute-stage[data-lockdown="true"] .execute-dot {
+  background: rgba(80, 0, 0, 0.52);
+}
+
+.execute-stage[data-lockdown="true"] .execute-dot.is-on {
+  background: rgba(255, 64, 64, 0.8);
+  opacity: 0.9;
+}
+
+.execute-stage[data-lockdown="true"] .execute-dot.is-accent {
+  background: rgba(255, 210, 0, 0.95);
+}
+
+.execute-action {
+  position: absolute;
+  bottom: clamp(112px, 24vh, 260px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(90vw, 520px);
+  padding: clamp(16px, 4vw, 28px);
+  background: rgba(12, 70, 62, 0.78);
+  border: 1px solid rgba(91, 228, 203, 0.55);
+  border-radius: 24px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(10px, 2.8vh, 18px);
+  z-index: 5;
+}
+
+.execute-action[hidden] {
+  display: none;
+}
+
+.execute-action-text {
+  font-size: clamp(1.02rem, 2.9vw, 1.36rem);
+  text-align: center;
+  line-height: 1.5;
+  color: #ddfff7;
+  white-space: pre-line;
+}
+
+.execute-action-button {
+  padding: 0.8rem 2.6rem;
+  border-radius: 999px;
+  border: 1px solid rgba(122, 244, 224, 0.6);
+  background: rgba(12, 110, 98, 0.85);
+  color: #eafff9;
+  font-size: clamp(0.92rem, 2.3vw, 1.1rem);
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: transform 200ms ease, box-shadow 200ms ease, background 200ms ease;
+}
+
+.execute-action-button:hover,
+.execute-action-button:focus-visible {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 0 18px rgba(122, 244, 224, 0.45);
+  background: rgba(16, 150, 134, 0.92);
+}
+
+.execute-action-button:focus-visible {
+  outline: 2px solid rgba(198, 255, 240, 0.8);
+  outline-offset: 3px;
+}
+
+.execute-action-button:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+.execute-lockdown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(18px, 4vh, 32px);
+  padding: clamp(28px, 6vw, 60px);
+  text-align: center;
+  background: rgba(8, 0, 0, 0.85);
+  z-index: 6;
+}
+
+.execute-lockdown[hidden] {
+  display: none;
+}
+
+.execute-lockdown-text {
+  font-size: clamp(1.1rem, 3.4vw, 1.6rem);
+  line-height: 1.6;
+  color: #ffd9df;
+  white-space: pre-line;
+  text-shadow: 0 0 18px rgba(255, 64, 64, 0.65);
+}
+
+.execute-lockdown-button {
+  padding: 0.9rem 2.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 180, 180, 0.8);
+  background: rgba(140, 0, 20, 0.9);
+  color: #ffeef2;
+  font-size: clamp(0.94rem, 2.4vw, 1.14rem);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 200ms ease, box-shadow 200ms ease, background 200ms ease;
+}
+
+.execute-lockdown-button:hover,
+.execute-lockdown-button:focus-visible {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 0 22px rgba(255, 90, 90, 0.7);
+  background: rgba(180, 0, 32, 0.92);
+}
+
+.execute-lockdown-button:focus-visible {
+  outline: 2px solid rgba(255, 210, 210, 0.8);
+  outline-offset: 4px;
+}
+
+.execute-lockdown-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.execute-stage[data-lockdown="true"] .execute-status {
+  color: #ffd9df;
+}
+
+.execute-stage[data-lockdown="true"] .execute-exit {
+  display: none;
+}
+
+.execute-stage[data-lockdown="true"] .execute-face {
+  filter: saturate(1.4) brightness(0.9);
+}
+
+.execute-stage[data-lockdown="true"] .execute-dot-grid {
+  opacity: 0.7;
 }
 
 .execute-face {

@@ -3,7 +3,10 @@ import {
   executeRequest,
   markDispatchFailure,
   completeExecution,
-  invalidateRequestDetail
+  invalidateRequestDetail,
+  connectWebSocket,
+  onWebSocketEvent,
+  sendWebSocketMessage
 } from "./api.js";
 import { getMe } from "./util.js";
 import { buildDispatchPayload, dispatchRobotViaLocal } from "./user.js";
@@ -13,6 +16,8 @@ import {
   updateExecuteContext,
   clearExecuteContext
 } from "./execute_context.js";
+
+const SITE = window.FP_SITE || "site-01";
 
 const DOT_ROWS = 48;
 const DOT_COLS = 80;
@@ -63,6 +68,17 @@ const FAILURE_STAGES = new Set([
   "invalid",
   "missing"
 ]);
+
+let executeContext = null;
+let actionContainer;
+let actionText;
+let actionButton;
+let lockdownContainer;
+let lockdownText;
+let lockdownButton;
+let currentInteraction = null;
+let lockdownActive = false;
+let lockdownState = null;
 
 const LETTER_TEMPLATES = {
   A: [
@@ -185,6 +201,10 @@ export async function initExecutionPage() {
     return;
   }
 
+  window.onbeforeunload = null;
+  connectWebSocket(SITE);
+  onWebSocketEvent("ROBOT_EVENT", handleRobotEvent);
+
   exiting = false;
   stopAmbientMessages();
   stopAmbientAnimations();
@@ -197,6 +217,33 @@ export async function initExecutionPage() {
     });
   }
 
+  actionContainer = document.createElement("div");
+  actionContainer.className = "execute-action";
+  actionContainer.hidden = true;
+  actionText = document.createElement("p");
+  actionText.className = "execute-action-text";
+  actionButton = document.createElement("button");
+  actionButton.type = "button";
+  actionButton.className = "execute-action-button";
+  actionButton.addEventListener("click", handleInteractionClick);
+  actionContainer.appendChild(actionText);
+  actionContainer.appendChild(actionButton);
+  screenEl.appendChild(actionContainer);
+
+  lockdownContainer = document.createElement("div");
+  lockdownContainer.className = "execute-lockdown";
+  lockdownContainer.hidden = true;
+  lockdownText = document.createElement("p");
+  lockdownText.className = "execute-lockdown-text";
+  lockdownButton = document.createElement("button");
+  lockdownButton.type = "button";
+  lockdownButton.className = "execute-lockdown-button";
+  lockdownButton.textContent = "락 해제 (관리자)";
+  lockdownButton.addEventListener("click", handleLockdownUnlock);
+  lockdownContainer.appendChild(lockdownText);
+  lockdownContainer.appendChild(lockdownButton);
+  screenEl.appendChild(lockdownContainer);
+
   gridEl.style.setProperty("--cols", String(DOT_COLS));
   gridEl.style.setProperty("--rows", String(DOT_ROWS));
 
@@ -204,6 +251,7 @@ export async function initExecutionPage() {
   applyExpression("sleep");
 
   const context = loadExecuteContext();
+  executeContext = context;
   if (!context || !context.requestId) {
     setStatus("집행 요청을 찾을 수 없습니다", "사용자 페이지로 돌아갑니다.", "error");
     await wait(1200);
@@ -211,7 +259,15 @@ export async function initExecutionPage() {
     return;
   }
 
-  await playBootSequence();
+  if (context.lockdown && context.lockdown.active) {
+    enterLockdown(context.lockdown, { persist: false });
+  } else if (context.interaction && !lockdownActive) {
+    showInteraction(context.interaction, { persist: false });
+  }
+
+  if (!lockdownActive) {
+    await playBootSequence();
+  }
   await runExecutionFlow(context);
 }
 async function runExecutionFlow(initialContext) {
@@ -221,12 +277,12 @@ async function runExecutionFlow(initialContext) {
     return;
   }
 
-  let context = setExecuteContext({ ...initialContext, state: initialContext.state || "pending" });
+  let context = executeContext = setExecuteContext({ ...initialContext, state: initialContext.state || "pending" });
   const requestId = context.requestId;
   const me = context.executor && context.executor.id ? context.executor : getMe();
 
   if (!context.executor && me) {
-    context = updateExecuteContext((prev) => ({ ...prev, executor: sanitizeExecutor(me) }));
+    context = executeContext = updateExecuteContext((prev) => ({ ...prev, executor: sanitizeExecutor(me) }));
   }
 
   updateStage("queued", "준비", "승인 확인");
@@ -235,7 +291,7 @@ async function runExecutionFlow(initialContext) {
   if (!detail) {
     try {
       detail = await fetchRequestDetail(requestId, { force: true });
-      context = updateExecuteContext((prev) => ({ ...prev, detail }));
+      context = executeContext = updateExecuteContext((prev) => ({ ...prev, detail }));
     } catch (err) {
       await handleFailure(context, "요청 정보 조회 실패", err, { stage: "invalid", actorId: me?.id });
       return;
@@ -245,7 +301,7 @@ async function runExecutionFlow(initialContext) {
   let dispatch = context.dispatch || null;
   if (!dispatch) {
     dispatch = buildDispatchPayload({ requestId, row: context.row, detail, executor: me });
-    context = updateExecuteContext((prev) => ({ ...prev, dispatch }));
+    context = executeContext = updateExecuteContext((prev) => ({ ...prev, dispatch }));
   }
 
   updateStage("dispatch-ready", "정렬", "시퀀스 구성");
@@ -254,17 +310,30 @@ async function runExecutionFlow(initialContext) {
   if (!serverResult) {
     try {
       serverResult = await executeRequest({ requestId, executorId: me?.id, dispatch });
-      context = updateExecuteContext((prev) => ({ ...prev, serverResult }));
+      context = executeContext = updateExecuteContext((prev) => ({ ...prev, serverResult }));
     } catch (err) {
-    await handleFailure(context, "집행 명령 등록 실패", err, { stage: "dispatch-failed", actorId: me?.id });
+      await handleFailure(context, "집행 명령 등록 실패", err, { stage: "dispatch-failed", actorId: me?.id });
       return;
     }
   }
 
   const dispatchFromServer = serverResult?.dispatch || dispatch;
-  const localPayload = context.localPayload || serverResult?.payload || null;
+  const payloadEnvelope = context.payloadEnvelope || serverResult?.payload || null;
+  const bridgePayload = context.bridgePayload
+    || payloadEnvelope?.bridgePayload
+    || serverResult?.bridgePayload
+    || serverResult?.payload?.bridgePayload
+    || null;
+  const localPayload = bridgePayload || context.localPayload || payloadEnvelope || null;
   const requiresManual = !!(localPayload && serverResult?.bridge?.manualRequired !== false);
-  context = updateExecuteContext((prev) => ({ ...prev, dispatch: dispatchFromServer, localPayload }));
+  context = executeContext = updateExecuteContext((prev) => ({
+    ...prev,
+    dispatch: dispatchFromServer,
+    payloadEnvelope,
+    bridgePayload,
+    localPayload,
+    requiresManual
+  }));
 
   updateStage("await-local", "연결", "로컬 확인");
 
@@ -285,7 +354,7 @@ async function runExecutionFlow(initialContext) {
         ? Math.max(payloadTimeout, 180000)
         : 180000;
       localResult = await dispatchRobotViaLocal(localPayload, { timeoutMs });
-      context = updateExecuteContext((prev) => ({ ...prev, localResult, state: "local-finished" }));
+      context = executeContext = updateExecuteContext((prev) => ({ ...prev, localResult, state: "local-finished" }));
     } catch (err) {
       stopAmbientMessages();
       await handleFailure(context, "로컬 장비 호출 실패", err, { stage: "dispatch-failed", actorId: me?.id });
@@ -325,7 +394,7 @@ async function runExecutionFlow(initialContext) {
         result: job,
         statusReason: completionMessage
       });
-      context = updateExecuteContext((prev) => ({ ...prev, completionReported: true, state: "completed" }));
+      context = executeContext = updateExecuteContext((prev) => ({ ...prev, completionReported: true, state: "completed" }));
     } catch (err) {
       await handleFailure(context, "집행 결과 반영 실패", err, { stage: "report-failed", actorId: me?.id, job });
       return;
@@ -370,12 +439,20 @@ function truncateStatus(text) {
   return text.length > MAX_STATUS_LENGTH ? `${text.slice(0, MAX_STATUS_LENGTH - 1)}…` : text;
 }
 
+function normalizeLevel(level) {
+  const normalized = String(level || "info").toLowerCase();
+  if (normalized === "warning" || normalized === "warn") return "warning";
+  if (normalized === "error" || normalized === "danger" || normalized === "fail") return "error";
+  if (normalized === "success" || normalized === "ok" || normalized === "done") return "success";
+  return "info";
+}
+
 function setStatus(label, message, level = "info") {
   statusLabel = normalizeText(label);
   statusMessage = normalizeText(message);
   ambientMessage = "";
   if (statusEl) {
-    statusEl.setAttribute("data-level", level);
+    statusEl.setAttribute("data-level", normalizeLevel(level));
   }
   applyStatus();
 }
@@ -716,11 +793,12 @@ async function powerDownAndExit({ immediate = false } = {}) {
   } catch (err) {
     console.warn("[AAMS][execute] 컨텍스트 정리 실패:", err);
   }
+  window.onbeforeunload = null;
   location.hash = "#/user";
 }
 
 function enableExit({ label = "사용자 페이지로 돌아가기", autoDelay = 90000 } = {}) {
-  if (!exitBtn) return;
+  if (!exitBtn || lockdownActive) return;
   exitBtn.hidden = false;
   exitBtn.disabled = false;
   exitBtn.textContent = label;
@@ -742,16 +820,30 @@ async function handleFailure(context, title, error, { stage = "dispatch-failed",
 
   let current = context || loadExecuteContext() || {};
   if (current.requestId) {
-    updateExecuteContext((prev) => ({ ...prev, state: "failed", error: message }));
+    executeContext = updateExecuteContext((prev) => ({ ...prev, state: "failed", error: message }));
     if (!current.failureReported) {
       try {
         await markDispatchFailure({ requestId: current.requestId, reason: message, actorId });
-        updateExecuteContext((prev) => ({ ...prev, failureReported: true }));
+        executeContext = updateExecuteContext((prev) => ({ ...prev, failureReported: true }));
       } catch (reportErr) {
         console.warn("[AAMS][execute] 오류 보고 실패:", reportErr);
       }
     }
     invalidateRequestDetail(current.requestId);
+  }
+
+  if (stage === "lockdown" || job?.stage === "lockdown" || job?.result?.lockdown) {
+    const lockdownPayload = job?.result?.lockdown || (job?.progress?.event === "lockdown" ? job.progress : null) || {
+      stage: job?.stage || stage,
+      message,
+      reason: job?.error || message
+    };
+    enterLockdown({
+      ...lockdownPayload,
+      active: true,
+      requestId: current.requestId || null,
+      triggeredAt: Date.now()
+    });
   }
 
   enableExit({ autoDelay: 90000 });
@@ -959,4 +1051,184 @@ function buildPupil(anchor, direction = "center") {
   if (direction === "up") targetRow = row + 2;
   if (direction === "down") targetRow = row + EYE_HEIGHT - PUPIL_HEIGHT - 2;
   return rectCoords(targetRow, targetCol, PUPIL_HEIGHT, PUPIL_WIDTH);
+}
+
+function handleRobotEvent(eventMessage) {
+  if (!eventMessage || eventMessage.type !== "ROBOT_EVENT") return;
+  const job = eventMessage.job || {};
+  const requestId = eventMessage.requestId ?? job.requestId ?? job.request_id ?? null;
+  const current = executeContext || loadExecuteContext() || {};
+  if (current.requestId && requestId && String(requestId) !== String(current.requestId)) {
+    return;
+  }
+
+  const progress = job.progress || {};
+  const eventType = progress.event || null;
+  const updates = { lastRobotEvent: { job, receivedAt: Date.now(), requestId: current.requestId || requestId || null } };
+
+  if (eventType === "await_user" && !lockdownActive) {
+    const interaction = {
+      stage: progress.stage || job.stage || "await_user",
+      message: progress.message || job.message || "사용자 입력 대기",
+      token: progress.token || null,
+      allowCancel: !!progress.allowCancel,
+      requestId: current.requestId || requestId || null,
+      meta: progress.meta || null,
+      receivedAt: Date.now()
+    };
+    showInteraction(interaction);
+    updates.interaction = interaction;
+  }
+
+  if (eventType === "await_user_done") {
+    clearInteraction(progress);
+    updates.interaction = null;
+  }
+
+  if (eventType === "lockdown" || job.stage === "lockdown") {
+    const lockdownPayload = {
+      stage: progress.stage || job.stage || "lockdown",
+      message: progress.message || job.message || "탄약 변동 감지",
+      reason: progress.reason || job.error || eventMessage.error || "lockdown",
+      meta: progress.meta || null,
+      requestId: current.requestId || requestId || null,
+      active: true,
+      triggeredAt: Date.now()
+    };
+    enterLockdown(lockdownPayload);
+    updates.lockdown = lockdownPayload;
+  }
+
+  if (!lockdownActive) {
+    const statusMessage = progress.message || job.message || null;
+    const level = progress.level || job.progress?.level || null;
+    if (statusMessage) {
+      setStatus("동작", statusMessage, level || "info");
+    }
+  }
+
+  if (Object.keys(updates).length) {
+    executeContext = updateExecuteContext((prev) => ({ ...prev, ...updates }));
+  }
+}
+
+function showInteraction(interaction, { persist = true } = {}) {
+  if (!interaction || lockdownActive) return;
+  currentInteraction = interaction;
+  if (screenEl) {
+    screenEl.setAttribute("data-interaction", interaction.stage || "await");
+  }
+  if (actionContainer) {
+    actionContainer.hidden = false;
+  }
+  if (actionText) {
+    actionText.textContent = normalizeText(interaction.message) || "사용자 확인이 필요합니다.";
+  }
+  if (actionButton) {
+    actionButton.disabled = false;
+    const buttonLabel = normalizeText(
+      (interaction.meta && interaction.meta.buttonLabel)
+        || interaction.buttonLabel
+        || "준비 완료"
+    );
+    actionButton.textContent = buttonLabel || "준비 완료";
+  }
+  if (persist) {
+    executeContext = updateExecuteContext((prev) => ({ ...prev, interaction }));
+  }
+}
+
+function clearInteraction(progress, { persist = true } = {}) {
+  currentInteraction = null;
+  if (screenEl) {
+    screenEl.removeAttribute("data-interaction");
+  }
+  if (actionContainer) {
+    actionContainer.hidden = true;
+  }
+  if (actionButton) {
+    actionButton.disabled = false;
+  }
+  if (persist) {
+    executeContext = updateExecuteContext((prev) => ({ ...prev, interaction: null }));
+  }
+}
+
+function handleInteractionClick() {
+  if (!currentInteraction || lockdownActive) return;
+  if (!currentInteraction.token) {
+    console.warn("[AAMS][execute] 상호작용 토큰이 없습니다.");
+    return;
+  }
+  if (actionButton) {
+    actionButton.disabled = true;
+    actionButton.textContent = "전송 중…";
+  }
+  const context = executeContext || loadExecuteContext() || {};
+  sendWebSocketMessage({
+    type: "ROBOT_INTERACTION",
+    requestId: context.requestId || currentInteraction.requestId || null,
+    token: currentInteraction.token,
+    stage: currentInteraction.stage,
+    action: "resume",
+    meta: { source: "execute-ui", sentAt: Date.now() }
+  });
+}
+
+function enterLockdown(lockdown, { persist = true } = {}) {
+  const payload = lockdown || {};
+  clearInteraction(null, { persist });
+  lockdownActive = true;
+  lockdownState = {
+    active: true,
+    message: payload.message || "탄약 변동 감지. 비상.",
+    reason: payload.reason || "lockdown",
+    stage: payload.stage || "lockdown",
+    meta: payload.meta || null,
+    requestId: payload.requestId || (executeContext && executeContext.requestId) || null,
+    triggeredAt: payload.triggeredAt || Date.now()
+  };
+
+  stopAmbientMessages();
+  stopAmbientAnimations();
+  setBaseExpression("sad");
+  applyExpression("sad");
+
+  if (screenEl) {
+    screenEl.dataset.scene = "active";
+    screenEl.setAttribute("data-lockdown", "true");
+    screenEl.removeAttribute("data-interaction");
+  }
+  if (exitBtn) {
+    exitBtn.hidden = true;
+    exitBtn.disabled = true;
+  }
+  if (actionContainer) {
+    actionContainer.hidden = true;
+  }
+
+  const alertText = `${lockdownState.message}\n비상. 정책에 의거하여 시스템을 락다운합니다.`;
+  setStatus("비상", alertText, "error");
+
+  if (lockdownContainer) {
+    lockdownContainer.hidden = false;
+  }
+  if (lockdownText) {
+    lockdownText.textContent = normalizeText(alertText);
+  }
+
+  window.onbeforeunload = () => "시스템이 락다운 상태입니다. 관리자 승인이 필요합니다.";
+
+  if (persist) {
+    executeContext = updateExecuteContext((prev) => ({ ...prev, lockdown: lockdownState, interaction: null }));
+  }
+}
+
+function handleLockdownUnlock() {
+  if (!lockdownActive) return;
+  executeContext = updateExecuteContext((prev) => ({
+    ...prev,
+    lockdown: { ...(prev.lockdown || lockdownState || {}), acknowledgedAt: Date.now(), acknowledged: true }
+  }));
+  location.hash = "#/fp-admin";
 }
