@@ -3,6 +3,7 @@ import { connectWebSocket, sendWebSocketRequest } from "./api.js"
 
 const POLL_INTERVAL_MS = 10000;
 const INITIAL_TIMEOUT_MS = 4500;
+const COUNT_COOLDOWN_MS = 30000;
 const numberFormatter = new Intl.NumberFormat("ko-KR");
 const SITE = window.FP_SITE || "site-01";
 
@@ -11,6 +12,7 @@ let lastUpdatedEl = null;
 let pollTimer = null;
 let refreshing = false;
 let initialized = false;
+let lastCountSnapshot = { value: null, fetchedAt: 0, error: null };
 
 function resolveUrl(base, path) {
   const cleanBase = (base || "").trim();
@@ -215,14 +217,61 @@ export async function refreshStatusMonitor() {
 
   try {
     const apiBase = getApiBase();
-    const [http, db, local, count] = await Promise.all([
+    const [http, db, local] = await Promise.all([
       fetchJson(resolveUrl(apiBase, "/health")),
       fetchJson(resolveUrl(apiBase, "/health/db"), { timeoutMs: 5200 }),
-      fetchBridgeHealth(),
-      fetchBridgeCount().catch((error) => ({ ok: false, error }))
+      fetchBridgeHealth()
     ]);
 
     const now = Date.now();
+
+    const localOk = !!(local.ok && local.data && local.data.ok !== false);
+    const manualActive = localOk && !!local.data?.identify?.manual?.active;
+    const identifyRunning = localOk && !!local.data?.identify?.running;
+    const scanningActive = manualActive || identifyRunning;
+    const cooldownExpired = now - lastCountSnapshot.fetchedAt >= COUNT_COOLDOWN_MS;
+
+    let countResult = { ok: false, count: null, skipped: true };
+    if (localOk && !scanningActive && cooldownExpired) {
+      try {
+        const res = await fetchBridgeCount();
+        const numericCount = Number.isFinite(res?.count) ? Number(res.count) : null;
+        if (res && res.ok && numericCount !== null) {
+          lastCountSnapshot = { value: numericCount, fetchedAt: Date.now(), error: null };
+          countResult = { ok: true, count: numericCount, skipped: false };
+        } else {
+          lastCountSnapshot = {
+            value: lastCountSnapshot.value,
+            fetchedAt: Date.now(),
+            error: res?.error || new Error("count_failed")
+          };
+          countResult = {
+            ok: false,
+            count: numericCount,
+            error: res?.error || null,
+            skipped: false
+          };
+        }
+      } catch (error) {
+        lastCountSnapshot = { value: lastCountSnapshot.value, fetchedAt: Date.now(), error };
+        countResult = { ok: false, count: null, error, skipped: false };
+      }
+    } else {
+      const cachedCount = Number.isFinite(lastCountSnapshot.value)
+        ? Number(lastCountSnapshot.value)
+        : null;
+      const reason = !localOk
+        ? "bridge_offline"
+        : scanningActive
+          ? "identify_active"
+          : "cooldown";
+      countResult = {
+        ok: cachedCount !== null,
+        count: cachedCount,
+        skipped: true,
+        reason
+      };
+    }
 
     const httpOk = !!(http.ok && http.data && (http.data.ok === true || http.data.status === "ok"));
     const httpState = httpOk ? "online" : (http.ok ? "degraded" : "offline");
@@ -245,7 +294,6 @@ export async function refreshStatusMonitor() {
     }
     setState("db", dbOk ? "online" : (db.ok ? "degraded" : "offline"), dbOk ? "정상" : "오류", dbDetail);
 
-    const localOk = !!(local.ok && local.data && local.data.ok !== false);
     let localState = localOk ? "online" : "offline";
     let localValue = localOk ? "대기 중" : "끊김";
     let localDetail = localOk ? "센서 상태 미확인" : describeError(local.error);
@@ -260,7 +308,7 @@ export async function refreshStatusMonitor() {
       const path = local.data?.serial?.path;
       const activeSummaryText = formatRobotSummary(activeRobot?.summary);
       const lastSummaryText = formatRobotSummary(lastRobot?.summary);
-      const templateCount = Number.isFinite(count?.count) ? count.count : null;
+      const templateCount = Number.isFinite(countResult?.count) ? countResult.count : null;
 
       if (!serialConnected) {
         localState = "degraded";
@@ -341,6 +389,7 @@ export function unmountStatusMonitor() {
   }
   refreshing = false;
   initialized = false;
+  lastCountSnapshot = { value: null, fetchedAt: 0, error: null };
   if (monitorEl && monitorEl.parentNode) {
     monitorEl.parentNode.removeChild(monitorEl);
   }
