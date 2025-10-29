@@ -3,14 +3,20 @@ import {
   fetchMyPendingApprovals,
   fetchRequestDetail,
   connectWebSocket,
-  sendWebSocketRequest
+  sendWebSocketMessage,
+  onWebSocketEvent
 } from "./api.js";
 import { getMe, renderMeBrief, mountMobileHeader } from "./util.js"
-import { setExecuteContext } from "./execute_context.js";
+import { setExecuteContext, loadExecuteContext } from "./execute_context.js";
 
 const numberFormatter = new Intl.NumberFormat("ko-KR");
 const SITE = window.FP_SITE || "site-01";
 const detailCache = new Map();
+const robotJobWaiters = new Map();
+let robotEventWatcherBound = false;
+
+const ROBOT_SUCCESS_STATUSES = new Set(["success", "succeeded", "done", "completed"]);
+const ROBOT_FAILURE_STATUSES = new Set(["failed", "error", "timeout", "cancelled", "canceled"]);
 
 const STATUS_METADATA = {
   APPROVED: {
@@ -76,6 +82,145 @@ const ROBOT_STAGE_LABELS = {
   error: "오류",
   timeout: "시간 초과"
 };
+
+function normalizeRobotRequestId(raw) {
+  if (raw === undefined || raw === null) return null;
+  const str = String(raw).trim();
+  return str ? str : null;
+}
+
+function isRobotFailureStatus(status) {
+  if (!status) return false;
+  return ROBOT_FAILURE_STATUSES.has(String(status).toLowerCase());
+}
+
+function isRobotSuccessStatus(status) {
+  if (!status) return false;
+  return ROBOT_SUCCESS_STATUSES.has(String(status).toLowerCase());
+}
+
+function isRobotFinalStatus(status) {
+  return isRobotFailureStatus(status) || isRobotSuccessStatus(status);
+}
+
+function evaluateRobotSnapshot(snapshot) {
+  if (!snapshot) return null;
+  const job = snapshot.job || {};
+  const requestId = normalizeRobotRequestId(snapshot.requestId || job.requestId || job.request_id || job.requestID);
+  if (!requestId) return null;
+  const status = String(job.status || "").toLowerCase();
+  const errorMessage = snapshot.error || job.error || null;
+  const final = snapshot.final === true || job.final === true || isRobotFinalStatus(status);
+  if (!final && !errorMessage) {
+    return { requestId, pending: true, job };
+  }
+  if (errorMessage || isRobotFailureStatus(status)) {
+    return {
+      requestId,
+      job,
+      error: errorMessage || job.message || "robot_failed"
+    };
+  }
+  return {
+    requestId,
+    job,
+    ok: true
+  };
+}
+
+function ensureRobotEventWatcher() {
+  if (robotEventWatcherBound) return;
+  robotEventWatcherBound = true;
+  onWebSocketEvent("ROBOT_EVENT", handleRobotEventForWaiters);
+}
+
+function handleRobotEventForWaiters(eventMessage) {
+  if (!eventMessage || eventMessage.type !== "ROBOT_EVENT") return;
+  const job = eventMessage.job || {};
+  const requestId = normalizeRobotRequestId(
+    eventMessage.requestId
+      || eventMessage.request_id
+      || job.requestId
+      || job.request_id
+      || job.requestID
+  );
+
+  if (!requestId) {
+    if (eventMessage.error && robotJobWaiters.size === 1) {
+      const [[key, waiter]] = robotJobWaiters.entries();
+      robotJobWaiters.delete(key);
+      if (waiter.timer) clearTimeout(waiter.timer);
+      const err = new Error(eventMessage.error);
+      err.response = { job, message: eventMessage };
+      waiter.reject(err);
+    }
+    return;
+  }
+
+  const waiter = robotJobWaiters.get(requestId);
+  if (!waiter) return;
+
+  const status = String(job.status || "").toLowerCase();
+  const final = eventMessage.final === true || job.final === true || isRobotFinalStatus(status);
+  const errorMessage = eventMessage.error || job.error || null;
+
+  if (!final && !errorMessage) {
+    return;
+  }
+
+  robotJobWaiters.delete(requestId);
+  if (waiter.timer) clearTimeout(waiter.timer);
+
+  if (errorMessage || isRobotFailureStatus(status)) {
+    const err = new Error(errorMessage || job.message || "robot_failed");
+    err.response = { job, message: eventMessage };
+    waiter.reject(err);
+    return;
+  }
+
+  waiter.resolve({ requestId, job, message: eventMessage });
+}
+
+function waitForRobotCompletion(requestId, { timeoutMs = 90000 } = {}) {
+  const key = normalizeRobotRequestId(requestId);
+  if (!key) {
+    return Promise.reject(new Error("로봇 요청 ID가 필요합니다."));
+  }
+  if (robotJobWaiters.has(key)) {
+    const existing = robotJobWaiters.get(key);
+    if (existing?.timer) clearTimeout(existing.timer);
+    robotJobWaiters.delete(key);
+  }
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  const timer = timeoutMs > 0 ? setTimeout(() => {
+    robotJobWaiters.delete(key);
+    reject(new Error("로컬 브릿지 응답 시간 초과"));
+  }, timeoutMs) : null;
+  robotJobWaiters.set(key, { resolve, reject, timer });
+  return promise;
+}
+
+function getActiveExecuteContext() {
+  try {
+    const context = loadExecuteContext();
+    return context || null;
+  } catch (err) {
+    console.warn("[AAMS][user] 실행 컨텍스트 확인 실패:", err?.message || err);
+    return null;
+  }
+}
+
+function isContextActive(context) {
+  if (!context || typeof context !== "object") return false;
+  if (!context.requestId) return false;
+  const state = String(context.state || "").toLowerCase();
+  return state !== "completed" && state !== "failed";
+}
 
 function isExecutionPendingStatus(status) {
   const key = String(status || "").trim().toUpperCase();
@@ -293,7 +438,7 @@ function renderCard(r, { variant = "pending" } = {}) {
       ${summaryNotice}
       <footer class="card-actions">
         ${variant === "history" ? "" : `
-        <button class="btn primary" data-act="execute" data-id="${escapeHtml(requestId)}"${executeState.disabled ? " disabled" : ""}>
+        <button class="btn primary" data-act="execute" data-id="${escapeHtml(requestId)}"${executeState.disabled ? " disabled" : ""}${executeState.resume ? " data-resume=\"true\"" : ""}>
           <span class="btn-label">${escapeHtml(executeState.label)}</span>
         </button>`}
         <button class="btn ghost detail-btn" data-act="detail" data-id="${escapeHtml(requestId)}" aria-expanded="false">
@@ -393,14 +538,37 @@ function wire(rows = [], me = null, { container = document } = {}) {
       const requestKey = String(requestIdStr);
       const executor = me || getMe();
       const snapshot = requestMap.get(requestKey) || null;
+      const resumeRequested = btn.getAttribute("data-resume") === "true";
+      const activeContext = getActiveExecuteContext();
 
-      setExecuteContext({
-        requestId: requestIdStr,
-        row: snapshot,
-        executor,
-        state: 'pending',
-        createdAt: Date.now()
-      });
+      let nextContext;
+
+      if (
+        resumeRequested
+        && isContextActive(activeContext)
+        && String(activeContext.requestId) === requestKey
+      ) {
+        nextContext = { ...activeContext };
+        if (snapshot) {
+          nextContext.row = snapshot;
+        }
+        if (!nextContext.executor && executor) {
+          nextContext.executor = executor;
+        }
+        if (!nextContext.state || nextContext.state === "completed" || nextContext.state === "failed") {
+          nextContext.state = "pending";
+        }
+      } else {
+        nextContext = {
+          requestId: requestIdStr,
+          row: snapshot,
+          executor,
+          state: 'pending',
+          createdAt: Date.now()
+        };
+      }
+
+      setExecuteContext(nextContext);
 
       location.hash = "#/execute";
     });
@@ -596,6 +764,10 @@ function resolveStatusInfo(status, row = {}) {
 
 function getExecuteButtonState(row, statusInfo = {}) {
   const key = statusInfo.key || String(row?.status || "").trim().toUpperCase();
+  const activeContext = getActiveExecuteContext();
+  const activeRequestId = isContextActive(activeContext) ? String(activeContext.requestId) : null;
+  const rowRequestId = row?.id ?? row?.raw?.id ?? null;
+  const matchesActive = activeRequestId && rowRequestId !== null && String(rowRequestId) === activeRequestId;
   if (!key || key === "APPROVED") {
     return { label: "집행", disabled: false };
   }
@@ -606,6 +778,9 @@ function getExecuteButtonState(row, statusInfo = {}) {
     return { label: "완료", disabled: true };
   }
   if (["DISPATCH_PENDING", "DISPATCHING", "DISPATCHED", "EXECUTING"].includes(key)) {
+    if (matchesActive) {
+      return { label: "재개", disabled: false, resume: true };
+    }
     return { label: statusInfo.label || "처리 중", disabled: true };
   }
   return { label: statusInfo.label || "집행", disabled: false };
@@ -904,64 +1079,73 @@ function extractAmmoPayload(row = {}, detail = {}) {
   return ammoItems;
 }
 
-async function dispatchRobotViaLocal(payload, { timeoutMs = 90000 } = {}) {
+async function dispatchRobotViaLocal(payload, { timeoutMs = 90000, resume = false, lastEvent = null } = {}) {
   if (!payload || typeof payload !== "object") {
     throw new Error("장비 명령 데이터가 없습니다.");
   }
 
   connectWebSocket(SITE);
-  const requestPayload = {
-    type: "ROBOT_EXECUTE",
-    payload: { ...payload },
-    timeoutMs
-  };
+  ensureRobotEventWatcher();
 
-  let wsRequestId = null;
-  const { requestId, promise } = sendWebSocketRequest(requestPayload, {
-    responseType: ["ROBOT_EVENT", "ERROR"],
-    timeoutMs,
-    match(message) {
-      if (!message) return false;
-      if (message.type === "ERROR") return true;
-      if (message.type !== "ROBOT_EVENT") return false;
-      const job = message.job || {};
-      const expectedIds = new Set();
-      if (wsRequestId) expectedIds.add(String(wsRequestId));
-      const payloadRequestId = requestPayload.payload?.requestId ?? requestPayload.payload?.request_id;
-      if (payloadRequestId != null) expectedIds.add(String(payloadRequestId));
-      if (message.requestId != null) expectedIds.add(String(message.requestId));
-      const jobRequestId = job.requestId ?? job.request_id ?? job.requestID;
-      if (expectedIds.size && jobRequestId != null && !expectedIds.has(String(jobRequestId))) {
-        return false;
+
+  const jobRequestId = normalizeRobotRequestId(
+    payload.requestId
+      || payload.request_id
+      || payload.requestID
+      || payload.execution_request_id
+  );
+
+  if (!jobRequestId) {
+    throw new Error("로봇 요청 ID를 확인할 수 없습니다.");
+  }
+
+  if (resume && lastEvent) {
+    const snapshot = evaluateRobotSnapshot(lastEvent);
+    if (snapshot && snapshot.requestId === jobRequestId) {
+      if (snapshot.error) {
+        const err = new Error(snapshot.error);
+        err.response = { job: snapshot.job || null, snapshot: lastEvent };
+        throw err;
       }
-      return message.final || job.final || job.status === "completed" || job.status === "succeeded" || job.status === "failed";
-    },
-    rejectOnError: false
-  });
-  wsRequestId = requestId;
+      if (snapshot.ok) {
+        return { ok: true, requestId: jobRequestId, job: snapshot.job || {} };
+      }
+    }
+  }
+
+  const normalizedTimeout = Number(timeoutMs);
+  const effectiveTimeout = Number.isFinite(normalizedTimeout) && normalizedTimeout > 0
+    ? normalizedTimeout
+    : 0;
+
+  const waitPromise = waitForRobotCompletion(jobRequestId, { timeoutMs: effectiveTimeout });
+
+  if (!resume) {
+    const relayRequestId = `robot-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const message = {
+      type: "ROBOT_EXECUTE",
+      requestId: relayRequestId,
+      payload: { ...payload }
+    };
+    if (!message.payload.request_id && !message.payload.requestId) {
+      message.payload.request_id = jobRequestId;
+    }
+    if (effectiveTimeout > 0) {
+      message.timeoutMs = effectiveTimeout;
+    }
+    sendWebSocketMessage(message);
+  }
 
   try {
-    const message = await promise;
-    if (!message) {
-      throw new Error("로봇 명령 응답이 없습니다.");
-    }
-    if (message.type === "ERROR") {
-      throw new Error(message.error || message.reason || "robot_failed");
-    }
-    if (message.error && !message.job) {
-      throw new Error(message.error || "robot_failed");
-    }
-    const job = message.job || {};
-    if (message.ok === false || job.status === "failed") {
-      const reason = message.error || job.error || job.message || "robot_failed";
-      const err = new Error(reason);
-      err.response = message;
-      throw err;
-    }
-    return { ok: true, requestId, job, final: true };
+    const result = await waitPromise;
+    return {
+      ok: true,
+      requestId: result?.requestId || jobRequestId,
+      job: result?.job || {}
+    };
   } catch (error) {
-    if (error?.code === "timeout" || error?.message === "ws_timeout") {
-      throw new Error("로컬 브릿지 응답 시간 초과");
+    if (error?.message === "로컬 브릿지 응답 시간 초과") {
+      throw error;
     }
     throw error instanceof Error ? error : new Error(String(error));
   }

@@ -469,15 +469,26 @@ async function runExecutionFlow(initialContext) {
   updateStage("executing", "동작", "로봇 제어");
 
   let localResult = context.localResult || null;
+  let alreadyDispatched = !!context.localDispatched;
   if (!localResult) {
+    if (!alreadyDispatched) {
+      context = executeContext = updateExecuteContext((prev) => ({ ...prev, localDispatched: true }));
+      alreadyDispatched = true;
+    }
     try {
       const payloadTimeout = Number(localPayload?.timeoutMs);
       const timeoutMs = Number.isFinite(payloadTimeout) && payloadTimeout > 0
         ? Math.max(payloadTimeout, 180000)
         : 180000;
-      localResult = await dispatchRobotViaLocal(localPayload, { timeoutMs });
+      const lastEventSnapshot = executeContext?.lastRobotEvent || null;
+      localResult = await dispatchRobotViaLocal(localPayload, {
+        timeoutMs,
+        resume: alreadyDispatched,
+        lastEvent: lastEventSnapshot
+      });
       context = executeContext = updateExecuteContext((prev) => ({ ...prev, localResult, state: "local-finished" }));
     } catch (err) {
+      context = executeContext = updateExecuteContext((prev) => ({ ...prev, localDispatched: false }));
       stopAmbientMessages();
       await handleFailure(context, "로컬 장비 호출 실패", err, { stage: "dispatch-failed", actorId: me?.id });
       return;
@@ -1401,6 +1412,7 @@ function enterLockdown(lockdown, { persist = true } = {}) {
 
 function exitLockdown(payload = {}, { persist = true } = {}) {
   const previousState = lockdownState || {};
+  const wasActive = !!previousState.active;
   const normalized = normalizeLockdownPayload({ ...lockdownState, ...payload, active: false });
   lockdownActive = false;
   lockdownState = normalized;
@@ -1441,11 +1453,16 @@ function exitLockdown(payload = {}, { persist = true } = {}) {
   if (persist) {
     executeContext = updateExecuteContext((prev) => ({ ...prev, lockdown: null }));
   }
-  Promise.resolve().then(() => {
-    powerDownAndExit({ immediate: true, target: "#/fp-user" }).catch((err) => {
-      console.warn("[AAMS][execute] 락다운 해제 후 이동 실패", err);
+  const explicitRedirect = payload.redirect === true;
+  const preventRedirect = payload.redirect === false;
+  const shouldRedirect = !preventRedirect && (payload.forceRedirect || explicitRedirect || wasActive);
+  if (shouldRedirect) {
+    Promise.resolve().then(() => {
+      powerDownAndExit({ immediate: true, target: "#/fp-user" }).catch((err) => {
+        console.warn("[AAMS][execute] 락다운 해제 후 이동 실패", err);
+      });
     });
-  });
+  }
 }
 
 function handleLockdownUnlock() {
