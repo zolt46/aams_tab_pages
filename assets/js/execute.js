@@ -1254,20 +1254,24 @@ function showInteraction(interaction, { persist = true } = {}) {
   if (screenEl) {
     screenEl.setAttribute("data-interaction", interaction.stage || "await");
   }
-  if (actionContainer) {
-    actionContainer.hidden = false;
-  }
+  const rawMessage = normalizeText(interaction.message);
+  const message = rawMessage && rawMessage.trim() ? rawMessage.trim() : "사용자 확인이 필요합니다.";
+  const rawButtonLabel = normalizeText(
+    (interaction.meta && interaction.meta.buttonLabel)
+      || interaction.buttonLabel
+      || "준비 완료"
+  );
+  const buttonLabel = rawButtonLabel && rawButtonLabel.trim() ? rawButtonLabel.trim() : "준비 완료";
+
   if (actionText) {
-    actionText.textContent = normalizeText(interaction.message) || "사용자 확인이 필요합니다.";
+    actionText.textContent = message;
   }
   if (actionButton) {
     actionButton.disabled = false;
-    const buttonLabel = normalizeText(
-      (interaction.meta && interaction.meta.buttonLabel)
-        || interaction.buttonLabel
-        || "준비 완료"
-    );
-    actionButton.textContent = buttonLabel || "준비 완료";
+    actionButton.textContent = buttonLabel;
+  }
+  if (actionContainer) {
+    actionContainer.hidden = !(message || buttonLabel);
   }
   if (persist) {
     executeContext = updateExecuteContext((prev) => ({ ...prev, interaction }));

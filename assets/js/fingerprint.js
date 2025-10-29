@@ -425,6 +425,9 @@ export async function initFpAdmin() {
   const unauthorizedMessage = "등록된 관리자 지문이 아닙니다. 관리자 권한이 있는 지문으로 다시 시도해 주세요.";
 
   connectWebSocket(SITE);
+  if (lockdownMode) {
+    sendWebSocketMessage({ type: "LOCKDOWN_STATUS_REQUEST", site: SITE });
+  }
 
   const sendStart = () => {
     sendWebSocketMessage({ type: "FP_START_REQUEST", site: SITE, led: DEFAULT_LED_ON_COMMAND });
@@ -507,6 +510,25 @@ export async function initFpAdmin() {
       setTimeout(() => { sendStart(); }, 3000);
     })
   ];
+
+  if (lockdownMode) {
+    const offLockdownStatus = onWebSocketEvent("LOCKDOWN_STATUS", (message) => {
+      if (message?.site && message.site !== SITE) return;
+      if (!pendingLockdownRelease) return;
+      if (!isLockdownClearedMessage(message)) return;
+      pendingLockdownRelease = false;
+      sessionStorage.removeItem(LOCKDOWN_SESSION_FLAG);
+      if (lockdownBanner) {
+        lockdownBanner.hidden = false;
+        lockdownBanner.textContent = "락다운이 해제되었습니다. 집행 화면으로 복귀합니다.";
+      }
+      if (window.onbeforeunload) {
+        window.onbeforeunload = null;
+      }
+      scheduleRedirect("#/execute");
+    });
+    sessionHandlers.push(offLockdownStatus);
+  }
 
   const claimResult = await claimOnceAdmin({ autoRedirect: false, onResolved: handleResolved });
   if (claimResult.success) {
