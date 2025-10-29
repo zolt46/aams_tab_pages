@@ -282,6 +282,11 @@ async function claimOnceAdmin(options = {}) {
 }
 
 export async function initFpUser() {
+  const lockdownMode = sessionStorage.getItem(LOCKDOWN_SESSION_FLAG) === "1";
+  const cleanupFns = [];
+  let pendingLockdownRelease = false;
+  const lockdownBanner = document.querySelector('[data-role="lockdown-banner"]');
+
   await mountMobileHeader({ title: "사용자 지문 인증", pageType: "login", backTo: "#/" });
   const stage = createFingerprintStage({ fallbackName: "사용자" });
 
