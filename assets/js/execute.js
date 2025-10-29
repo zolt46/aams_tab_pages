@@ -866,7 +866,7 @@ async function playBootSequence() {
   startAmbientAnimations();
 }
 
-async function powerDownAndExit({ immediate = false } = {}) {
+async function powerDownAndExit({ immediate = false, target = "#/user" } = {}) {
   if (exiting) return;
   exiting = true;
   if (exitAutoTimer) {
@@ -908,7 +908,7 @@ async function powerDownAndExit({ immediate = false } = {}) {
     console.warn("[AAMS][execute] 컨텍스트 정리 실패:", err);
   }
   window.onbeforeunload = null;
-  location.hash = "#/user";
+  location.hash = target || "#/user";
 }
 
 function enableExit({ label = "사용자 페이지로 돌아가기", autoDelay = 90000 } = {}) {
@@ -1250,6 +1250,10 @@ function handleLockdownStatus(message) {
 
 function showInteraction(interaction, { persist = true } = {}) {
   if (!interaction || lockdownActive) return;
+  if (!interaction.token) {
+    console.warn("[AAMS][execute] 토큰이 없는 상호작용 요청을 무시합니다.", interaction);
+    return;
+  }
   currentInteraction = interaction;
   if (screenEl) {
     screenEl.setAttribute("data-interaction", interaction.stage || "await");
@@ -1288,6 +1292,10 @@ function clearInteraction(progress, { persist = true } = {}) {
   }
   if (actionButton) {
     actionButton.disabled = false;
+    actionButton.textContent = "";
+  }
+  if (actionText) {
+    actionText.textContent = "";
   }
   if (persist) {
     executeContext = updateExecuteContext((prev) => ({ ...prev, interaction: null }));
@@ -1329,6 +1337,7 @@ function enterLockdown(lockdown, { persist = true } = {}) {
   applyExpression("sad");
 
   setLockdownGuard();
+  document.body.classList.add("lockdown-mode");
 
   if (screenEl) {
     screenEl.dataset.scene = "active";
@@ -1372,6 +1381,8 @@ function exitLockdown(payload = {}, { persist = true } = {}) {
 
   clearLockdownGuard();
   window.onbeforeunload = null;
+  sessionStorage.removeItem(LOCKDOWN_SESSION_FLAG);
+  document.body.classList.remove("lockdown-mode");
 
   if (screenEl) {
     screenEl.removeAttribute("data-lockdown");
@@ -1381,19 +1392,20 @@ function exitLockdown(payload = {}, { persist = true } = {}) {
     lockdownContainer.hidden = true;
   }
   if (lockdownButton) {
-    lockdownButton.disabled = false;
-    lockdownButton.textContent = "락 해제 (관리자)";
+    lockdownButton.disabled = true;
   }
   if (exitBtn) {
     exitBtn.hidden = false;
     exitBtn.disabled = false;
   }
   if (actionContainer) {
-    actionContainer.hidden = false;
+    actionContainer.hidden = true;
   }
   if (actionButton) {
     actionButton.disabled = false;
   }
+
+  clearInteraction(null, { persist });
 
   const statusMessage = payload.clearedMessage
     || payload.clearMessage
@@ -1403,6 +1415,11 @@ function exitLockdown(payload = {}, { persist = true } = {}) {
   if (persist) {
     executeContext = updateExecuteContext((prev) => ({ ...prev, lockdown: null }));
   }
+  Promise.resolve().then(() => {
+    powerDownAndExit({ immediate: true, target: "#/fp-user" }).catch((err) => {
+      console.warn("[AAMS][execute] 락다운 해제 후 이동 실패", err);
+    });
+  });
 }
 
 function handleLockdownUnlock() {

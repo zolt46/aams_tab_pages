@@ -347,10 +347,10 @@ export async function initFpUser() {
       cleanupFns.forEach((fn) => { try { fn(); } catch (_) {} });
       if (lockdownBanner) {
         lockdownBanner.hidden = false;
-        lockdownBanner.textContent = "락다운이 해제되었습니다. 집행 화면으로 복귀합니다.";
+        lockdownBanner.textContent = "락다운이 해제되었습니다. 사용자 지문 인증 화면으로 이동합니다.";
       }
       window.onbeforeunload = null;
-      location.hash = "#/execute";
+      location.hash = "#/fp-user";
     });
     sessionHandlers.push(offLockdownStatus);
   }
@@ -520,12 +520,12 @@ export async function initFpAdmin() {
       sessionStorage.removeItem(LOCKDOWN_SESSION_FLAG);
       if (lockdownBanner) {
         lockdownBanner.hidden = false;
-        lockdownBanner.textContent = "락다운이 해제되었습니다. 집행 화면으로 복귀합니다.";
+        lockdownBanner.textContent = "락다운이 해제되었습니다. 사용자 지문 인증 화면으로 이동합니다.";
       }
       if (window.onbeforeunload) {
         window.onbeforeunload = null;
       }
-      scheduleRedirect("#/execute");
+      scheduleRedirect("#/fp-user");
     });
     sessionHandlers.push(offLockdownStatus);
   }
