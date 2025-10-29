@@ -931,6 +931,8 @@ async function handleFailure(context, title, error, { stage = "dispatch-failed",
   const message = extractErrorMessage(error);
   console.error("[AAMS][execute]", stage, error);
   updateStage(stage, title, message, { level: "error", expression: "sad" });
+  
+  clearInteraction(null, { persist: true });
 
   let current = context || loadExecuteContext() || {};
   if (current.requestId) {
