@@ -69,6 +69,85 @@ const FAILURE_STAGES = new Set([
   "missing"
 ]);
 
+function normalizeHashTarget(raw) {
+  if (!raw) return "#/";
+  const trimmed = String(raw).trim();
+  if (!trimmed) return "#/";
+  if (trimmed.startsWith("#/")) return trimmed;
+  if (trimmed.startsWith("#")) {
+    const rest = trimmed.slice(1).replace(/^\/+/, "");
+    return rest ? `#/${rest}` : "#/";
+  }
+  if (trimmed.startsWith("/")) {
+    return `#${trimmed.replace(/^\/+/, "")}`;
+  }
+  return `#/${trimmed.replace(/^#?\/+/, "")}`;
+}
+
+function isLockdownHashAllowed(hash, allowAdmin = false) {
+  const normalized = normalizeHashTarget(hash);
+  if (LOCKDOWN_ALLOWED_HASHES.has(normalized)) return true;
+  if (allowAdmin && normalized === "#/fp-admin") return true;
+  return false;
+}
+
+function enforceLockdownHash(preferred) {
+  const target = preferred ? normalizeHashTarget(preferred) : normalizeHashTarget(lockdownGuard?.allowAdmin ? "#/fp-admin" : "#/execute");
+  if (location.hash !== target) {
+    location.hash = target;
+  }
+}
+
+function updateGlobalLockdownGuard() {
+  if (!lockdownGuard) {
+    delete window.AAMS_LOCKDOWN_GUARD;
+    return;
+  }
+  window.AAMS_LOCKDOWN_GUARD = {
+    shouldBlock(targetHash) {
+      return !isLockdownHashAllowed(targetHash, lockdownGuard.allowAdmin);
+    },
+    enforce(targetHash) {
+      const normalized = normalizeHashTarget(targetHash);
+      if (isLockdownHashAllowed(normalized, lockdownGuard.allowAdmin)) {
+        enforceLockdownHash(normalized);
+      } else {
+        enforceLockdownHash();
+      }
+    }
+  };
+}
+
+function setLockdownGuard({ allowAdmin = false } = {}) {
+  if (!lockdownGuard) {
+    const handler = (event) => {
+      const target = normalizeHashTarget(location.hash);
+      if (!isLockdownHashAllowed(target, lockdownGuard.allowAdmin)) {
+        event?.preventDefault?.();
+        enforceLockdownHash();
+      }
+    };
+    lockdownGuard = { allowAdmin: !!allowAdmin, handler };
+    window.addEventListener("hashchange", handler, true);
+  } else {
+    lockdownGuard.allowAdmin = lockdownGuard.allowAdmin || !!allowAdmin;
+  }
+  updateGlobalLockdownGuard();
+}
+
+function allowLockdownAdminAccess() {
+  setLockdownGuard({ allowAdmin: true });
+  enforceLockdownHash("#/fp-admin");
+}
+
+function clearLockdownGuard() {
+  if (lockdownGuard?.handler) {
+    window.removeEventListener("hashchange", lockdownGuard.handler, true);
+  }
+  lockdownGuard = null;
+  delete window.AAMS_LOCKDOWN_GUARD;
+}
+
 let executeContext = null;
 let actionContainer;
 let actionText;
@@ -79,6 +158,39 @@ let lockdownButton;
 let currentInteraction = null;
 let lockdownActive = false;
 let lockdownState = null;
+
+let lockdownGuard = null;
+
+const LOCKDOWN_SESSION_FLAG = "AAMS_LOCKDOWN_MODE";
+const LOCKDOWN_ALLOWED_HASHES = new Set(["#/execute"]);
+const GENERIC_STATUS_PATTERNS = [
+  /준비/,
+  /대기/,
+  /안전 절차/,
+  /시각 검증 준비/,
+  /안전 점검/
+];
+
+function normalizeLockdownPayload(raw = {}) {
+  const activeRaw = raw.active;
+  const active = !(activeRaw === false || activeRaw === "false" || activeRaw === 0 || activeRaw === "0");
+  const triggeredAt = raw.triggeredAt || raw.triggered_at || (active ? Date.now() : null);
+  const clearedAt = raw.clearedAt || raw.cleared_at || (!active ? Date.now() : null);
+  const reason = raw.reason || raw.error || (active ? "lockdown" : "unlock");
+  const message = raw.message || (active ? "락다운 상태" : "락다운 해제");
+  const stage = raw.stage || "lockdown";
+  const meta = raw.meta || raw.details || null;
+  return {
+    ...raw,
+    active,
+    triggeredAt,
+    clearedAt,
+    reason,
+    message,
+    stage,
+    meta
+  };
+}
 
 const LETTER_TEMPLATES = {
   A: [
@@ -204,6 +316,8 @@ export async function initExecutionPage() {
   window.onbeforeunload = null;
   connectWebSocket(SITE);
   onWebSocketEvent("ROBOT_EVENT", handleRobotEvent);
+  onWebSocketEvent("LOCKDOWN_STATUS", handleLockdownStatus);
+  sendWebSocketMessage({ type: "LOCKDOWN_STATUS_REQUEST", site: SITE });
 
   exiting = false;
   stopAmbientMessages();
@@ -909,6 +1023,15 @@ function mergeInto(target, source) {
   }
 }
 
+function shouldSuppressStatusMessage(message, job = {}) {
+  const normalized = normalizeText(message);
+  if (!normalized) return false;
+  const stage = String(job.stage || "").toLowerCase();
+  if (!stage || stage.includes("dispatch") || stage.includes("initialize")) return false;
+  if (FAILURE_STAGES.has(job.stage)) return false;
+  return GENERIC_STATUS_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 function rectCoords(row, col, height, width) {
   const coords = [];
   for (let r = 0; r < height; r += 1) {
@@ -1102,13 +1225,24 @@ function handleRobotEvent(eventMessage) {
   if (!lockdownActive) {
     const statusMessage = progress.message || job.message || null;
     const level = progress.level || job.progress?.level || null;
-    if (statusMessage) {
+    if (statusMessage && !shouldSuppressStatusMessage(statusMessage, job)) {
       setStatus("동작", statusMessage, level || "info");
     }
   }
 
   if (Object.keys(updates).length) {
     executeContext = updateExecuteContext((prev) => ({ ...prev, ...updates }));
+  }
+}
+
+function handleLockdownStatus(message) {
+  if (!message) return;
+  if (message.site && message.site !== SITE) return;
+  const payload = normalizeLockdownPayload(message);
+  if (payload.active) {
+    enterLockdown(payload);
+  } else {
+    exitLockdown(payload);
   }
 }
 
@@ -1176,23 +1310,19 @@ function handleInteractionClick() {
 }
 
 function enterLockdown(lockdown, { persist = true } = {}) {
-  const payload = lockdown || {};
+  const payload = normalizeLockdownPayload(lockdown || {});
+  payload.active = true;
+  payload.requestId = payload.requestId || (executeContext && executeContext.requestId) || null;
   clearInteraction(null, { persist });
   lockdownActive = true;
-  lockdownState = {
-    active: true,
-    message: payload.message || "탄약 변동 감지. 비상.",
-    reason: payload.reason || "lockdown",
-    stage: payload.stage || "lockdown",
-    meta: payload.meta || null,
-    requestId: payload.requestId || (executeContext && executeContext.requestId) || null,
-    triggeredAt: payload.triggeredAt || Date.now()
-  };
+  lockdownState = payload;
 
   stopAmbientMessages();
   stopAmbientAnimations();
   setBaseExpression("sad");
   applyExpression("sad");
+
+  setLockdownGuard();
 
   if (screenEl) {
     screenEl.dataset.scene = "active";
@@ -1205,6 +1335,10 @@ function enterLockdown(lockdown, { persist = true } = {}) {
   }
   if (actionContainer) {
     actionContainer.hidden = true;
+  }
+  if (lockdownButton) {
+    lockdownButton.disabled = false;
+    lockdownButton.textContent = "락 해제 (관리자)";
   }
 
   const alertText = `${lockdownState.message}\n비상. 정책에 의거하여 시스템을 락다운합니다.`;
@@ -1224,11 +1358,60 @@ function enterLockdown(lockdown, { persist = true } = {}) {
   }
 }
 
+function exitLockdown(payload = {}, { persist = true } = {}) {
+  const previousState = lockdownState || {};
+  const normalized = normalizeLockdownPayload({ ...lockdownState, ...payload, active: false });
+  lockdownActive = false;
+  lockdownState = normalized;
+
+  clearLockdownGuard();
+  window.onbeforeunload = null;
+
+  if (screenEl) {
+    screenEl.removeAttribute("data-lockdown");
+    screenEl.removeAttribute("data-interaction");
+  }
+  if (lockdownContainer) {
+    lockdownContainer.hidden = true;
+  }
+  if (lockdownButton) {
+    lockdownButton.disabled = false;
+    lockdownButton.textContent = "락 해제 (관리자)";
+  }
+  if (exitBtn) {
+    exitBtn.hidden = false;
+    exitBtn.disabled = false;
+  }
+  if (actionContainer) {
+    actionContainer.hidden = false;
+  }
+  if (actionButton) {
+    actionButton.disabled = false;
+  }
+
+  const statusMessage = payload.clearedMessage
+    || payload.clearMessage
+    || (payload.message && payload.message !== previousState.message ? payload.message : null)
+    || "락다운이 해제되었습니다.";
+  setStatus("해제", statusMessage, "success");
+  if (persist) {
+    executeContext = updateExecuteContext((prev) => ({ ...prev, lockdown: null }));
+  }
+}
+
 function handleLockdownUnlock() {
   if (!lockdownActive) return;
+  if (lockdownButton) {
+    lockdownButton.disabled = true;
+    lockdownButton.textContent = "관리자 인증 이동 중…";
+  }
   executeContext = updateExecuteContext((prev) => ({
     ...prev,
     lockdown: { ...(prev.lockdown || lockdownState || {}), acknowledgedAt: Date.now(), acknowledged: true }
   }));
-  location.hash = "#/fp-admin";
+  sessionStorage.setItem(LOCKDOWN_SESSION_FLAG, "1");
+  allowLockdownAdminAccess();
+  if (normalizeHashTarget(location.hash) !== "#/fp-admin") {
+    location.hash = "#/fp-admin";
+  }
 }

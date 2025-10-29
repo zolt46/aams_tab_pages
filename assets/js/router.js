@@ -112,6 +112,10 @@ function showError(msg){
 
 export async function mountRoute(){
   const app = document.getElementById("app");
+  if (window.AAMS_LOCKDOWN_GUARD?.shouldBlock?.(location.hash)) {
+    window.AAMS_LOCKDOWN_GUARD.enforce?.(location.hash);
+    return;
+  }
   const { key, config } = resolveRoute(location.hash);
 
   if (!config){

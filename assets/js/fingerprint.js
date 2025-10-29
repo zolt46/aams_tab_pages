@@ -9,8 +9,18 @@ const SCAN_FEEDBACK_DELAY_MS = 420;
 const DEFAULT_LED_ON_COMMAND = { mode: "breathing", color: "blue", speed: 18 };
 
 const SUCCESS_STOP_REASONS = new Set(["matched", "claim-success"]);
+const LOCKDOWN_SESSION_FLAG = "AAMS_LOCKDOWN_MODE";
 
 const sleep = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const normalizeLockdownActive = (value) => !(value === false || value === "false" || value === 0 || value === "0");
+
+function isLockdownClearedMessage(message = {}) {
+  if (message == null || typeof message !== "object") return false;
+  if (!normalizeLockdownActive(message.active)) return true;
+  if (message.cleared === true || message.cleared === "true") return true;
+  return false;
+}
 
 function extractSessionReason(message) {
   if (!message || typeof message !== "object") return "";
@@ -276,6 +286,9 @@ export async function initFpUser() {
   const stage = createFingerprintStage({ fallbackName: "사용자" });
 
   connectWebSocket(SITE);
+  if (lockdownMode) {
+    sendWebSocketMessage({ type: "LOCKDOWN_STATUS_REQUEST", site: SITE });
+  }
 
   const sendStart = () => {
     sendWebSocketMessage({ type: "FP_START_REQUEST", site: SITE, led: DEFAULT_LED_ON_COMMAND });
@@ -319,6 +332,23 @@ export async function initFpUser() {
       setTimeout(() => { sendStart(); }, 3000);
     })
   ];
+  if (lockdownMode) {
+    const offLockdownStatus = onWebSocketEvent("LOCKDOWN_STATUS", (message) => {
+      if (message?.site && message.site !== SITE) return;
+      if (!pendingLockdownRelease) return;
+      if (!isLockdownClearedMessage(message)) return;
+      pendingLockdownRelease = false;
+      sessionStorage.removeItem(LOCKDOWN_SESSION_FLAG);
+      cleanupFns.forEach((fn) => { try { fn(); } catch (_) {} });
+      if (lockdownBanner) {
+        lockdownBanner.hidden = false;
+        lockdownBanner.textContent = "락다운이 해제되었습니다. 집행 화면으로 복귀합니다.";
+      }
+      window.onbeforeunload = null;
+      location.hash = "#/execute";
+    });
+    sessionHandlers.push(offLockdownStatus);
+  }
 
   const claimResult = await claimOnce({ redirect: "#/user", autoRedirect: false, onResolved: handleResolved });
   if (claimResult.success) {
@@ -332,8 +362,12 @@ export async function initFpUser() {
   const handleUnload = () => {
     subscription?.close?.();
     sessionHandlers.forEach((off) => { try { off(); } catch (_) {} });
+    cleanupFns.forEach((fn) => { try { fn(); } catch (_) {} });
     if (redirectTimer) clearTimeout(redirectTimer);
     stopSession("navigation");
+    if (lockdownMode) {
+      sessionStorage.removeItem(LOCKDOWN_SESSION_FLAG);
+    }
   };
   window.addEventListener("beforeunload", handleUnload, { once: true });
   window.addEventListener("pagehide", handleUnload, { once: true });
@@ -342,9 +376,43 @@ export async function initFpUser() {
 }
 
 export async function initFpAdmin() {
-  await mountMobileHeader({ title: "관리자 지문 인증", pageType: "login", backTo: "#/admin-login" });
+  const lockdownMode = sessionStorage.getItem(LOCKDOWN_SESSION_FLAG) === "1";
+  await mountMobileHeader({ title: "관리자 지문 인증", pageType: "login", backTo: lockdownMode ? "#/fp-admin" : "#/admin-login" });
+  const cleanupFns = [];
   const stage = createFingerprintStage({ fallbackName: "관리자" });
+  const lockdownBanner = document.querySelector('[data-role="lockdown-banner"]');
+  if (lockdownMode) {
+    document.body.classList.add("lockdown-mode");
+    cleanupFns.push(() => document.body.classList.remove("lockdown-mode"));
+    if (lockdownBanner) {
+      lockdownBanner.hidden = false;
+      lockdownBanner.textContent = "락다운 해제를 위한 관리자 지문 인증입니다.";
+    }
+    const hideHeaderBtn = (id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = "none";
+    };
+    ["m-back", "m-refresh", "m-logout", "m-home"].forEach(hideHeaderBtn);
+    const preventNav = (event) => {
+      if (location.hash !== "#/fp-admin") {
+        event?.preventDefault?.();
+        location.hash = "#/fp-admin";
+      }
+    };
+    window.addEventListener("hashchange", preventNav, true);
+    cleanupFns.push(() => window.removeEventListener("hashchange", preventNav, true));
+    const unloadGuard = () => "락다운 해제 절차가 완료될 때까지 페이지를 이탈할 수 없습니다.";
+    window.onbeforeunload = unloadGuard;
+    cleanupFns.push(() => {
+      if (window.onbeforeunload === unloadGuard) {
+        window.onbeforeunload = null;
+      }
+    });
+  } else if (lockdownBanner) {
+    lockdownBanner.hidden = true;
+  }
   const loginId = String(sessionStorage.getItem("AAMS_ADMIN_LOGIN_ID") || "").trim();
+  let pendingLockdownRelease = false;
   const mismatchMessage = loginId
     ? `현재 로그인한 관리자 계정(${loginId})과 지문이 일치하지 않습니다. 다시 시도해 주세요.`
     : "로그인한 관리자 계정과 지문이 일치하지 않습니다. 다시 시도해 주세요.";
@@ -380,7 +448,25 @@ export async function initFpAdmin() {
     stage.setScanning();
     await sleep(SCAN_FEEDBACK_DELAY_MS);
     stage.showSuccess(me);
-    stopSession("matched")
+    stopSession("matched");
+    if (lockdownMode) {
+      pendingLockdownRelease = true;
+      if (lockdownBanner) {
+        lockdownBanner.hidden = false;
+        lockdownBanner.textContent = "락다운 해제 요청을 전송했습니다. 잠시만 기다려 주세요.";
+      }
+      const actorPayload = {};
+      if (me?.id) actorPayload.id = me.id;
+      if (me?.name) actorPayload.name = me.name;
+      if (me?.rank) actorPayload.rank = me.rank;
+      sendWebSocketMessage({
+        type: "LOCKDOWN_RELEASE",
+        site: SITE,
+        reason: "admin_unlock",
+        actor: actorPayload
+      });
+      return true;
+    }
     scheduleRedirect(ctx?.target || "#/admin");
     return true;
   };
