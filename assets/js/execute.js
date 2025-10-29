@@ -469,11 +469,10 @@ async function runExecutionFlow(initialContext) {
   updateStage("executing", "동작", "로봇 제어");
 
   let localResult = context.localResult || null;
-  let alreadyDispatched = !!context.localDispatched;
+  const alreadyDispatched = !!context.localDispatched;
   if (!localResult) {
     if (!alreadyDispatched) {
       context = executeContext = updateExecuteContext((prev) => ({ ...prev, localDispatched: true }));
-      alreadyDispatched = true;
     }
     try {
       const payloadTimeout = Number(localPayload?.timeoutMs);
