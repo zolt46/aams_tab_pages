@@ -1,6 +1,7 @@
 // assets/js/fingerprint.js
 import { mountMobileHeader, saveMe } from "./util.js";
 import { connectWebSocket, sendWebSocketMessage, onWebSocketEvent } from "./api.js";
+import { clearExecuteContext } from "./execute_context.js";
 
 const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
 const SITE = window.FP_SITE || "site-01";
@@ -292,6 +293,8 @@ export async function initFpUser() {
 
   connectWebSocket(SITE);
   if (lockdownMode) {
+    document.body.classList.add("lockdown-mode");
+    cleanupFns.push(() => document.body.classList.remove("lockdown-mode"));
     sendWebSocketMessage({ type: "LOCKDOWN_STATUS_REQUEST", site: SITE });
   }
 
@@ -344,7 +347,9 @@ export async function initFpUser() {
       if (!isLockdownClearedMessage(message)) return;
       pendingLockdownRelease = false;
       sessionStorage.removeItem(LOCKDOWN_SESSION_FLAG);
+      try { clearExecuteContext(); } catch (err) { console.warn("[AAMS][fp-user] 실행 컨텍스트 정리 실패", err); }
       cleanupFns.forEach((fn) => { try { fn(); } catch (_) {} });
+      cleanupFns.length = 0;
       if (lockdownBanner) {
         lockdownBanner.hidden = false;
         lockdownBanner.textContent = "락다운이 해제되었습니다. 사용자 지문 인증 화면으로 이동합니다.";
@@ -518,6 +523,7 @@ export async function initFpAdmin() {
       if (!isLockdownClearedMessage(message)) return;
       pendingLockdownRelease = false;
       sessionStorage.removeItem(LOCKDOWN_SESSION_FLAG);
+      try { clearExecuteContext(); } catch (err) { console.warn("[AAMS][fp-admin] 실행 컨텍스트 정리 실패", err); }
       if (lockdownBanner) {
         lockdownBanner.hidden = false;
         lockdownBanner.textContent = "락다운이 해제되었습니다. 사용자 지문 인증 화면으로 이동합니다.";
@@ -525,6 +531,8 @@ export async function initFpAdmin() {
       if (window.onbeforeunload) {
         window.onbeforeunload = null;
       }
+      cleanupFns.forEach((fn) => { try { fn(); } catch (_) {} });
+      cleanupFns.length = 0;
       scheduleRedirect("#/fp-user");
     });
     sessionHandlers.push(offLockdownStatus);

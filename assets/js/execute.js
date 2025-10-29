@@ -334,6 +334,7 @@ export async function initExecutionPage() {
   actionContainer = document.createElement("div");
   actionContainer.className = "execute-action";
   actionContainer.hidden = true;
+  actionContainer.setAttribute("hidden", "");
   actionText = document.createElement("p");
   actionText.className = "execute-action-text";
   actionButton = document.createElement("button");
@@ -375,8 +376,15 @@ export async function initExecutionPage() {
 
   if (context.lockdown && context.lockdown.active) {
     enterLockdown(context.lockdown, { persist: false });
-  } else if (context.interaction && !lockdownActive) {
+  } else if (context.interaction && context.interaction.active && !lockdownActive) {
     showInteraction(context.interaction, { persist: false });
+  } else if (context.interaction && !context.interaction.active) {
+    clearInteraction(null, { persist: false });
+    try {
+      executeContext = updateExecuteContext((prev) => ({ ...prev, interaction: null }));
+    } catch (err) {
+      console.warn("[AAMS][execute] 컨텍스트 초기화 실패:", err);
+    }
   }
 
   if (!lockdownActive) {
@@ -1254,7 +1262,12 @@ function showInteraction(interaction, { persist = true } = {}) {
     console.warn("[AAMS][execute] 토큰이 없는 상호작용 요청을 무시합니다.", interaction);
     return;
   }
-  currentInteraction = interaction;
+  const normalized = {
+    ...interaction,
+    active: true,
+    updatedAt: Date.now()
+  };
+  currentInteraction = normalized;
   if (screenEl) {
     screenEl.setAttribute("data-interaction", interaction.stage || "await");
   }
@@ -1275,10 +1288,16 @@ function showInteraction(interaction, { persist = true } = {}) {
     actionButton.textContent = buttonLabel;
   }
   if (actionContainer) {
-    actionContainer.hidden = !(message || buttonLabel);
+    if (message || buttonLabel) {
+      actionContainer.hidden = false;
+      actionContainer.removeAttribute("hidden");
+    } else {
+      actionContainer.hidden = true;
+      actionContainer.setAttribute("hidden", "");
+    }
   }
   if (persist) {
-    executeContext = updateExecuteContext((prev) => ({ ...prev, interaction }));
+    executeContext = updateExecuteContext((prev) => ({ ...prev, interaction: normalized }));
   }
 }
 
@@ -1289,6 +1308,7 @@ function clearInteraction(progress, { persist = true } = {}) {
   }
   if (actionContainer) {
     actionContainer.hidden = true;
+    actionContainer.setAttribute("hidden", "");
   }
   if (actionButton) {
     actionButton.disabled = false;
@@ -1330,6 +1350,12 @@ function enterLockdown(lockdown, { persist = true } = {}) {
   clearInteraction(null, { persist });
   lockdownActive = true;
   lockdownState = payload;
+
+  try {
+    sessionStorage.setItem(LOCKDOWN_SESSION_FLAG, "1");
+  } catch (err) {
+    console.warn("[AAMS][execute] 락다운 세션 플래그 설정 실패:", err);
+  }
 
   stopAmbientMessages();
   stopAmbientAnimations();
