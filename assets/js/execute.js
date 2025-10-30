@@ -954,7 +954,15 @@ async function handleFailure(context, title, error, { stage = "dispatch-failed",
 
   let current = context || loadExecuteContext() || {};
   if (current.requestId) {
-    executeContext = updateExecuteContext((prev) => ({ ...prev, state: "failed", error: message }));
+    executeContext = updateExecuteContext((prev) => ({
+      ...prev,
+      state: "failed",
+      error: message,
+      localDispatched: false,
+      localResult: null,
+      lastRobotEvent: null
+    }));
+    current = executeContext || current;
     if (!current.failureReported) {
       try {
         await markDispatchFailure({ requestId: current.requestId, reason: message, actorId });
