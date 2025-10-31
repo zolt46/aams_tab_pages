@@ -4,7 +4,9 @@ import * as UserPage from "./user.js";
 import * as AdminPage from "./admin.js";
 import * as ExecutePage from "./execute.js";
 import * as AdminFpPage from "./admin_fp.js";
+import * as LockdownPage from "./lockdown_page.js";
 
+import { connectWebSocket, onWebSocketEvent, sendWebSocketMessage } from "./api.js";
 import { assertApiBaseHealthy } from "./util.js";
 import { mountStatusMonitor, unmountStatusMonitor, refreshStatusMonitor } from "./health_monitor.js";
 
@@ -31,9 +33,18 @@ const routes = {
     candidates:["./pages/admin_fp_manage.html"],
     init: AdminFpPage.initAdminFingerprintManage
   },
+  "#/lockdown": {
+    candidates:["./pages/lockdown.html"],
+    init: LockdownPage.initLockdownPage
+  },
 };
 
 const DEFAULT_ROUTE = "#/";
+const LOCKDOWN_ROUTE = "#/lockdown";
+const LOCKDOWN_SESSION_FLAG = "AAMS_LOCKDOWN_MODE";
+const LOCKDOWN_ALLOWED = new Set([LOCKDOWN_ROUTE, "#/fp-admin"]);
+const SITE = window.FP_SITE || "site-01";
+let lockdownWatcherReady = false;
 
 function normalizeHash(rawHash){
   if (!rawHash) return DEFAULT_ROUTE;
@@ -87,6 +98,34 @@ function resolveRoute(rawHash){
   return { key: DEFAULT_ROUTE, config: fallback };
 }
 
+function setupLockdownWatcher() {
+  if (lockdownWatcherReady) return;
+  lockdownWatcherReady = true;
+  connectWebSocket(SITE);
+  onWebSocketEvent("LOCKDOWN_STATUS", (message) => {
+    if (message?.site && message.site !== SITE) return;
+    const active = !(message?.active === false);
+    if (active) {
+      sessionStorage.setItem(LOCKDOWN_SESSION_FLAG, "1");
+      const current = normalizeHash(location.hash);
+      if (!LOCKDOWN_ALLOWED.has(current)) {
+        safeReplaceHash(LOCKDOWN_ROUTE);
+      }
+    } else {
+      sessionStorage.removeItem(LOCKDOWN_SESSION_FLAG);
+      if (normalizeHash(location.hash) === LOCKDOWN_ROUTE) {
+        safeReplaceHash("#/fp-user");
+      }
+    }
+  });
+  sendWebSocketMessage({ type: "LOCKDOWN_STATUS_REQUEST", site: SITE });
+  if (sessionStorage.getItem(LOCKDOWN_SESSION_FLAG) === "1") {
+    const current = normalizeHash(location.hash);
+    if (!LOCKDOWN_ALLOWED.has(current)) {
+      safeReplaceHash(LOCKDOWN_ROUTE);
+    }
+  }
+}
 
 
 async function loadFirst(paths){
@@ -112,6 +151,14 @@ function showError(msg){
 
 export async function mountRoute(){
   const app = document.getElementById("app");
+  const forcedLockdown = sessionStorage.getItem(LOCKDOWN_SESSION_FLAG) === "1";
+  if (forcedLockdown) {
+    const current = normalizeHash(location.hash);
+    if (!LOCKDOWN_ALLOWED.has(current)) {
+      safeReplaceHash(LOCKDOWN_ROUTE);
+      return;
+    }
+  }
   if (window.AAMS_LOCKDOWN_GUARD?.shouldBlock?.(location.hash)) {
     window.AAMS_LOCKDOWN_GUARD.enforce?.(location.hash);
     return;
@@ -166,6 +213,7 @@ function setupHiddenAdminShortcut() {
 // ...
 export function bootstrap(){
   setupHiddenAdminShortcut();
+  setupLockdownWatcher();
   const normalized = normalizeHash(location.hash);
   if (normalized !== location.hash){
     safeReplaceHash(normalized, { addHistory: !location.hash });
