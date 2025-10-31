@@ -162,7 +162,7 @@ let lockdownState = null;
 let lockdownGuard = null;
 
 const LOCKDOWN_SESSION_FLAG = "AAMS_LOCKDOWN_MODE";
-const LOCKDOWN_ALLOWED_HASHES = new Set(["#/execute"]);
+const LOCKDOWN_ALLOWED_HASHES = new Set(["#/execute", "#/lockdown"]);
 const GENERIC_STATUS_PATTERNS = [
   /준비/,
   /대기/,
