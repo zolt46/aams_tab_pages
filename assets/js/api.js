@@ -42,7 +42,7 @@ const wsQueue = [];
 let wsRequestCounter = 0;
 const pendingRequests = new Map();
 
-const defaultSite = () => (window.FP_SITE || "site-01");
+const defaultSite = () => (window.FP_SITE || "default");
 
 function emitWsState(event, payload) {
   const handlers = wsStateHandlers[event];

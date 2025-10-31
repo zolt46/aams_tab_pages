@@ -16,7 +16,7 @@ import {
   saveMe
 } from "./util.js";
 
-const SITE = window.FP_SITE || "site-01";
+const SITE = window.FP_SITE || "default";
 const HTML_ESCAPE = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 const SENSOR_ERROR_MESSAGES = {
   timeout_or_no_finger: "지문이 인식되지 않았습니다. 다시 시도해 주세요.",

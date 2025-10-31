@@ -153,7 +153,7 @@ export async function logoutKiosk() {
     // 서버 티켓 무효화
     await fetch(`${getApiBase()}/api/fp/invalidate`, {
       method:'POST', headers:{'content-type':'application/json'},
-      body: JSON.stringify({ site: window.FP_SITE || 'site-01' })
+      body: JSON.stringify({ site: window.FP_SITE || 'default' })
     }).catch(()=>{});
   } finally {
     // me 초기화/라우팅 등 기존 동작

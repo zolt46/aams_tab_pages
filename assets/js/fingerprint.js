@@ -4,7 +4,7 @@ import { connectWebSocket, sendWebSocketMessage, onWebSocketEvent } from "./api.
 import { clearExecuteContext } from "./execute_context.js";
 
 const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
-const SITE = window.FP_SITE || "site-01";
+const SITE = window.FP_SITE || "default";
 const WAIT_AFTER_SUCCESS_MS = 2000;
 const SCAN_FEEDBACK_DELAY_MS = 420;
 const DEFAULT_LED_ON_COMMAND = { mode: "breathing", color: "blue", speed: 18 };
@@ -387,7 +387,7 @@ export async function initFpUser() {
 
 export async function initFpAdmin() {
   const lockdownMode = sessionStorage.getItem(LOCKDOWN_SESSION_FLAG) === "1";
-  await mountMobileHeader({ title: "관리자 지문 인증", pageType: "login", backTo: lockdownMode ? "#/fp-admin" : "#/admin-login" });
+  await mountMobileHeader({ title: "관리자 지문 인증", pageType: "login", backTo: lockdownMode ? "#/lockdown" : "#/admin-login" });
   const cleanupFns = [];
   const stage = createFingerprintStage({ fallbackName: "관리자" });
   const lockdownBanner = document.querySelector('[data-role="lockdown-banner"]');
@@ -396,29 +396,13 @@ export async function initFpAdmin() {
     cleanupFns.push(() => document.body.classList.remove("lockdown-mode"));
     if (lockdownBanner) {
       lockdownBanner.hidden = false;
-      lockdownBanner.textContent = "락다운 해제를 위한 관리자 지문 인증입니다.";
+      lockdownBanner.textContent = "긴급 개방 해제는 관리자 PC에서만 진행됩니다. 관리자 지시에 따라 대기하십시오.";
     }
-    const hideHeaderBtn = (id) => {
-      const el = document.getElementById(id);
-      if (el) el.style.display = "none";
-    };
-    ["m-back", "m-refresh", "m-logout", "m-home"].forEach(hideHeaderBtn);
-    const preventNav = (event) => {
-      if (location.hash !== "#/fp-admin") {
-        event?.preventDefault?.();
-        location.hash = "#/fp-admin";
-      }
-    };
-    window.addEventListener("hashchange", preventNav, true);
-    cleanupFns.push(() => window.removeEventListener("hashchange", preventNav, true));
-    const unloadGuard = () => "락다운 해제 절차가 완료될 때까지 페이지를 이탈할 수 없습니다.";
-    window.onbeforeunload = unloadGuard;
-    cleanupFns.push(() => {
-      if (window.onbeforeunload === unloadGuard) {
-        window.onbeforeunload = null;
-      }
-    });
-  } else if (lockdownBanner) {
+    stage.showError("긴급 개방 해제는 관리자 PC에서만 진행됩니다.", { autoResetMs: 0 });
+    setTimeout(() => { location.hash = "#/lockdown"; }, 2400);
+    return;
+  }
+  if (lockdownBanner) {
     lockdownBanner.hidden = true;
   }
   const loginId = String(sessionStorage.getItem("AAMS_ADMIN_LOGIN_ID") || "").trim();

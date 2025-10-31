@@ -17,7 +17,7 @@ import {
   clearExecuteContext
 } from "./execute_context.js";
 
-const SITE = window.FP_SITE || "site-01";
+const SITE = window.FP_SITE || "default";
 
 const DOT_ROWS = 48;
 const DOT_COLS = 80;
