@@ -10,7 +10,7 @@ import { getMe, renderMeBrief, mountMobileHeader } from "./util.js"
 import { setExecuteContext, loadExecuteContext } from "./execute_context.js";
 
 const numberFormatter = new Intl.NumberFormat("ko-KR");
-const SITE = window.FP_SITE || "default";
+const SITE = window.FP_SITE || "site-01";
 const detailCache = new Map();
 const robotJobWaiters = new Map();
 let robotEventWatcherBound = false;

@@ -3,7 +3,7 @@ import { mountMobileHeader, saveMe } from "./util.js";
 import { connectWebSocket, sendWebSocketMessage, onWebSocketEvent } from "./api.js";
 
 const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
-const SITE = window.FP_SITE || "default";
+const SITE = window.FP_SITE || "site-01";
 const WAIT_AFTER_SUCCESS_MS = 2000;
 const SCAN_FEEDBACK_DELAY_MS = 420;
 const DEFAULT_LED_ON_COMMAND = { mode: "breathing", color: "blue", speed: 18 };
