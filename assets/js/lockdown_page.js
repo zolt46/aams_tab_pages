@@ -1,7 +1,7 @@
 import { mountMobileHeader } from "./util.js";
 import { connectWebSocket, onWebSocketEvent, sendWebSocketMessage } from "./api.js";
 
-const SITE = window.FP_SITE || "default";
+const SITE = window.FP_SITE || "site-01";
 const LOCKDOWN_SESSION_FLAG = "AAMS_LOCKDOWN_MODE";
 
 let unsubscribes = [];
