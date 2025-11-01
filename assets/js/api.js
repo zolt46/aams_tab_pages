@@ -42,7 +42,7 @@ const wsQueue = [];
 let wsRequestCounter = 0;
 const pendingRequests = new Map();
 
-const defaultSite = () => (window.FP_SITE || "site-01");
+const defaultSite = () => (window.FP_SITE || "default");
 
 function emitWsState(event, payload) {
   const handlers = wsStateHandlers[event];
@@ -816,7 +816,7 @@ async function fetchRequestDetails(ids, { concurrency = 4 } = {}) {
 // assets/js/api.js 맨 아래 근처에 추가
 const FP_BASE = () => getApiBase() || "";
 
-export async function fetchFpLast(site = "site-01") {
+export async function fetchFpLast(site = "default") {
   const r = await fetch(`${FP_BASE()}/api/fp/last?site=${encodeURIComponent(site)}`);
   return r.ok ? r.json() : null;
 }
@@ -826,7 +826,7 @@ export async function listFpMappings() {
   return r.ok ? r.json() : [];
 }
 
-export function openFpEventSource({ site = "site-01", onEvent } = {}) {
+export function openFpEventSource({ site = "default", onEvent } = {}) {
   connectWebSocket(site);
   const unsubscribe = onWebSocketEvent("FP_EVENT", (message) => {
     if (message?.site && message.site !== site) return;

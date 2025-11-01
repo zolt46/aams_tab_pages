@@ -5,7 +5,7 @@ const POLL_INTERVAL_MS = 10000;
 const INITIAL_TIMEOUT_MS = 4500;
 const COUNT_COOLDOWN_MS = 30000;
 const numberFormatter = new Intl.NumberFormat("ko-KR");
-const SITE = window.FP_SITE || "site-01";
+const SITE = window.FP_SITE || "default";
 
 let monitorEl = null;
 let lastUpdatedEl = null;

@@ -97,5 +97,5 @@
   }
 
   window.AAMS_CONFIG = config;
-  window.FP_SITE = window.FP_SITE || "site-01";
+  window.FP_SITE = window.FP_SITE || "default";
 })();

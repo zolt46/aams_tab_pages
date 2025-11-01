@@ -2,7 +2,7 @@
 import { openFpEventSource } from "./api.js";
 
 const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
-const SITE     = window.FP_SITE || "site-01";
+const SITE     = window.FP_SITE || "default";
 
 async function claimOnce() {
   try {

@@ -43,7 +43,7 @@ const DEFAULT_ROUTE = "#/";
 const LOCKDOWN_ROUTE = "#/lockdown";
 const LOCKDOWN_SESSION_FLAG = "AAMS_LOCKDOWN_MODE";
 const LOCKDOWN_ALLOWED = new Set([LOCKDOWN_ROUTE]);
-const SITE = window.FP_SITE || "site-01";
+const SITE = window.FP_SITE || "default";
 let lockdownWatcherReady = false;
 
 function normalizeHash(rawHash){
