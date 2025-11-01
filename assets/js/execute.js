@@ -1412,6 +1412,11 @@ function enterLockdown(lockdown, { persist = true } = {}) {
 
   window.onbeforeunload = () => "시스템이 락다운 상태입니다. 관리자 승인이 필요합니다.";
 
+  if (typeof location !== "undefined" && location.hash !== "#/lockdown") {
+    try { location.hash = "#/lockdown"; }
+    catch (err) { console.warn("[AAMS][execute] 락다운 경로 전환 실패", err); }
+  }
+
   if (persist) {
     executeContext = updateExecuteContext((prev) => ({ ...prev, lockdown: lockdownState, interaction: null }));
   }

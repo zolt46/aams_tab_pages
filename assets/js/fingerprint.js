@@ -1,7 +1,6 @@
 // assets/js/fingerprint.js
 import { mountMobileHeader, saveMe } from "./util.js";
 import { connectWebSocket, sendWebSocketMessage, onWebSocketEvent } from "./api.js";
-import { clearExecuteContext } from "./execute_context.js";
 
 const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
 const SITE = window.FP_SITE || "default";
@@ -283,22 +282,18 @@ async function claimOnceAdmin(options = {}) {
 }
 
 export async function initFpUser() {
-  const lockdownMode = sessionStorage.getItem(LOCKDOWN_SESSION_FLAG) === "1";
-  const cleanupFns = [];
-  let pendingLockdownRelease = false;
-  const lockdownBanner = document.querySelector('[data-role="lockdown-banner"]');
-
   await mountMobileHeader({ title: "사용자 지문 인증", pageType: "login", backTo: "#/" });
   const stage = createFingerprintStage({ fallbackName: "사용자" });
 
   connectWebSocket(SITE);
-  if (lockdownMode) {
-    document.body.classList.add("lockdown-mode");
-    cleanupFns.push(() => document.body.classList.remove("lockdown-mode"));
-    sendWebSocketMessage({ type: "LOCKDOWN_STATUS_REQUEST", site: SITE });
-  }
+
+  const sessionHandlers = [];
+  let subscription = null;
+  let redirectTimer = null;
+  let cleanedUp = false;
 
   const sendStart = () => {
+    if (cleanedUp) return;
     sendWebSocketMessage({ type: "FP_START_REQUEST", site: SITE, led: DEFAULT_LED_ON_COMMAND });
   };
 
@@ -306,7 +301,44 @@ export async function initFpUser() {
     sendWebSocketMessage({ type: "FP_STOP_REQUEST", site: SITE, reason, turnOffLed: true });
   };
 
-  let redirectTimer = null;
+  const cleanup = (reason = "navigation") => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (redirectTimer) {
+      clearTimeout(redirectTimer);
+      redirectTimer = null;
+    }
+    subscription?.close?.();
+    sessionHandlers.forEach((off) => { try { off(); } catch (_) {} });
+    stopSession(reason);
+  };
+
+  const redirectToLockdown = () => {
+    cleanup("lockdown");
+    if (location.hash !== "#/lockdown") {
+      try { location.hash = "#/lockdown"; }
+      catch (err) { console.warn("[AAMS][fp-user] 락다운 페이지 이동 실패", err); }
+    }
+  };
+  const handleLockdownStatus = (message) => {
+    if (message?.site && message.site !== SITE) return;
+    if (normalizeLockdownActive(message?.active)) {
+      sessionStorage.setItem(LOCKDOWN_SESSION_FLAG, "1");
+      redirectToLockdown();
+    } else {
+      sessionStorage.removeItem(LOCKDOWN_SESSION_FLAG);
+    }
+  };
+
+  sessionHandlers.push(onWebSocketEvent("LOCKDOWN_STATUS", handleLockdownStatus));
+  sendWebSocketMessage({ type: "LOCKDOWN_STATUS_REQUEST", site: SITE });
+
+  if (sessionStorage.getItem(LOCKDOWN_SESSION_FLAG) === "1") {
+    stopSession("lockdown");
+    redirectToLockdown();
+    return;
+  }
+
   const scheduleRedirect = (target) => {
     const next = target || "#/user";
     if (!next) return;
@@ -322,7 +354,12 @@ export async function initFpUser() {
     scheduleRedirect(ctx?.target || "#/user");
     return true;
   };
-  const sessionHandlers = [
+
+  const handleRejected = async () => {
+    sendStart();
+  };
+
+  sessionHandlers.push(
     onWebSocketEvent("FP_SESSION_STARTED", (message) => {
       if (message?.site && message.site !== SITE) return;
       stage.setScanning();
@@ -337,28 +374,9 @@ export async function initFpUser() {
       if (message?.site && message.site !== SITE) return;
       const errorMessage = message?.error || "지문 센서를 준비할 수 없습니다. 연결 상태를 확인해 주세요.";
       stage.showError(errorMessage, { autoResetMs: 0 });
-      setTimeout(() => { sendStart(); }, 3000);
+      setTimeout(() => { if (!cleanedUp) sendStart(); }, 3000);
     })
-  ];
-  if (lockdownMode) {
-    const offLockdownStatus = onWebSocketEvent("LOCKDOWN_STATUS", (message) => {
-      if (message?.site && message.site !== SITE) return;
-      if (!pendingLockdownRelease) return;
-      if (!isLockdownClearedMessage(message)) return;
-      pendingLockdownRelease = false;
-      sessionStorage.removeItem(LOCKDOWN_SESSION_FLAG);
-      try { clearExecuteContext(); } catch (err) { console.warn("[AAMS][fp-user] 실행 컨텍스트 정리 실패", err); }
-      cleanupFns.forEach((fn) => { try { fn(); } catch (_) {} });
-      cleanupFns.length = 0;
-      if (lockdownBanner) {
-        lockdownBanner.hidden = false;
-        lockdownBanner.textContent = "락다운이 해제되었습니다. 사용자 지문 인증 화면으로 이동합니다.";
-      }
-      window.onbeforeunload = null;
-      location.hash = "#/fp-user";
-    });
-    sessionHandlers.push(offLockdownStatus);
-  }
+  );
 
   const claimResult = await claimOnce({ redirect: "#/user", autoRedirect: false, onResolved: handleResolved });
   if (claimResult.success) {
@@ -367,197 +385,39 @@ export async function initFpUser() {
     return;
   }
 
-  const subscription = listenAndRedirect({ redirect: "#/user", autoRedirect: false, onResolved: handleResolved });
+  if (cleanedUp) {
+    return;
+  }
 
-  const handleUnload = () => {
-    subscription?.close?.();
-    sessionHandlers.forEach((off) => { try { off(); } catch (_) {} });
-    cleanupFns.forEach((fn) => { try { fn(); } catch (_) {} });
-    if (redirectTimer) clearTimeout(redirectTimer);
-    stopSession("navigation");
-    if (lockdownMode) {
-      sessionStorage.removeItem(LOCKDOWN_SESSION_FLAG);
-    }
-  };
+  subscription = listenAndRedirect({ redirect: "#/user", autoRedirect: false, onResolved: handleResolved, onRejected: handleRejected });
+
+  const handleUnload = () => cleanup("navigation");
   window.addEventListener("beforeunload", handleUnload, { once: true });
   window.addEventListener("pagehide", handleUnload, { once: true });
+  window.addEventListener("hashchange", handleUnload, { once: true });
 
   sendStart();
 }
 
 export async function initFpAdmin() {
-  const lockdownMode = sessionStorage.getItem(LOCKDOWN_SESSION_FLAG) === "1";
-  await mountMobileHeader({ title: "관리자 지문 인증", pageType: "login", backTo: lockdownMode ? "#/lockdown" : "#/admin-login" });
-  const cleanupFns = [];
+  await mountMobileHeader({ title: "관리자 지문 안내", pageType: "login", backTo: "#/admin" });
   const stage = createFingerprintStage({ fallbackName: "관리자" });
-  const lockdownBanner = document.querySelector('[data-role="lockdown-banner"]');
-  if (lockdownMode) {
-    document.body.classList.add("lockdown-mode");
-    cleanupFns.push(() => document.body.classList.remove("lockdown-mode"));
-    if (lockdownBanner) {
-      lockdownBanner.hidden = false;
-      lockdownBanner.textContent = "긴급 개방 해제는 관리자 PC에서만 진행됩니다. 관리자 지시에 따라 대기하십시오.";
-    }
-    stage.showError("긴급 개방 해제는 관리자 PC에서만 진행됩니다.", { autoResetMs: 0 });
-    setTimeout(() => { location.hash = "#/lockdown"; }, 2400);
-    return;
-  }
-  if (lockdownBanner) {
-    lockdownBanner.hidden = true;
-  }
-  const loginId = String(sessionStorage.getItem("AAMS_ADMIN_LOGIN_ID") || "").trim();
-  let pendingLockdownRelease = false;
-  const mismatchMessage = loginId
-    ? `현재 로그인한 관리자 계정(${loginId})과 지문이 일치하지 않습니다. 다시 시도해 주세요.`
-    : "로그인한 관리자 계정과 지문이 일치하지 않습니다. 다시 시도해 주세요.";
-
-  const unauthorizedMessage = "등록된 관리자 지문이 아닙니다. 관리자 권한이 있는 지문으로 다시 시도해 주세요.";
+  const banner = document.querySelector('[data-role="lockdown-banner"]');
 
   connectWebSocket(SITE);
-  if (lockdownMode) {
-    sendWebSocketMessage({ type: "LOCKDOWN_STATUS_REQUEST", site: SITE });
+  sendWebSocketMessage({ type: "FP_STOP_REQUEST", site: SITE, reason: "admin_fp_disabled", turnOffLed: true });
+
+  if (banner) {
+    banner.hidden = false;
+    banner.textContent = "긴급 개방 해제는 관리자 PC에서만 진행됩니다. 관리자 화면으로 이동합니다.";
   }
+  stage.showError("관리자 지문 인증 기능은 비활성화되었습니다.", { autoResetMs: 0 });
 
-  const sendStart = () => {
-    sendWebSocketMessage({ type: "FP_START_REQUEST", site: SITE, led: DEFAULT_LED_ON_COMMAND });
-  };
-
-  const stopSession = (reason) => {
-    sendWebSocketMessage({ type: "FP_STOP_REQUEST", site: SITE, reason, turnOffLed: true })
-  };
-
-  let redirectTimer = null;
-  const scheduleRedirect = (target) => {
-    const next = target || "#/admin";
-    if (!next) return;
-    if (redirectTimer) clearTimeout(redirectTimer);
-    redirectTimer = setTimeout(() => { location.hash = next; }, WAIT_AFTER_SUCCESS_MS);
-  };
-
-  const handleResolved = async (me, ctx) => {
-    const actualId = me?.user_id ? String(me.user_id).trim() : "";
-    if (loginId && actualId && loginId !== actualId) {
-      ctx.rejectReason = "login_mismatch";
-      stage.showError(mismatchMessage, { autoResetMs: 2600 });
-      sendStart()
-      return false;
+  const target = sessionStorage.getItem(LOCKDOWN_SESSION_FLAG) === "1" ? "#/lockdown" : "#/admin";
+  setTimeout(() => {
+    if (location.hash !== target) {
+      try { location.hash = target; }
+      catch (err) { console.warn("[AAMS][fp-admin] 이동 실패", err); }
     }
-    stage.setScanning();
-    await sleep(SCAN_FEEDBACK_DELAY_MS);
-    stage.showSuccess(me);
-    stopSession("matched");
-    if (lockdownMode) {
-      pendingLockdownRelease = true;
-      if (lockdownBanner) {
-        lockdownBanner.hidden = false;
-        lockdownBanner.textContent = "락다운 해제 요청을 전송했습니다. 잠시만 기다려 주세요.";
-      }
-      const actorPayload = {};
-      if (me?.id) actorPayload.id = me.id;
-      if (me?.name) actorPayload.name = me.name;
-      if (me?.rank) actorPayload.rank = me.rank;
-      sendWebSocketMessage({
-        type: "LOCKDOWN_RELEASE",
-        site: SITE,
-        reason: "admin_unlock",
-        actor: actorPayload
-      });
-      return true;
-    }
-    scheduleRedirect(ctx?.target || "#/admin");
-    return true;
-  };
-
-  const handleRejected = async (info = {}) => {
-    const reason = info.reason || "unknown";
-    if (reason === "require_admin") {
-      stage.showError(unauthorizedMessage, { autoResetMs: 5000 }); //경고 출력 및 재로그인 대기 시간
-      sendStart()
-      return;
-    }
-    if (reason === "login_mismatch") {
-      return;
-    }
-    sendStart();
-  };
-
-  const sessionHandlers = [
-    onWebSocketEvent("FP_SESSION_STARTED", (message) => {
-      if (message?.site && message.site !== SITE) return;
-      stage.setScanning();
-    }),
-    onWebSocketEvent("FP_SESSION_STOPPED", (message) => {
-      if (message?.site && message.site !== SITE) return;
-      const reason = extractSessionReason(message);
-      if (SUCCESS_STOP_REASONS.has(reason)) return;
-      stage.setWaiting();
-    }),
-    onWebSocketEvent("FP_SESSION_ERROR", (message) => {
-      if (message?.site && message.site !== SITE) return;
-      const errorMessage = message?.error || "지문 센서를 준비할 수 없습니다. 연결 상태를 확인해 주세요.";
-      stage.showError(errorMessage, { autoResetMs: 0 });
-      setTimeout(() => { sendStart(); }, 3000);
-    })
-  ];
-
-  if (lockdownMode) {
-    const offLockdownStatus = onWebSocketEvent("LOCKDOWN_STATUS", (message) => {
-      if (message?.site && message.site !== SITE) return;
-      if (!pendingLockdownRelease) return;
-      if (!isLockdownClearedMessage(message)) return;
-      pendingLockdownRelease = false;
-      sessionStorage.removeItem(LOCKDOWN_SESSION_FLAG);
-      try { clearExecuteContext(); } catch (err) { console.warn("[AAMS][fp-admin] 실행 컨텍스트 정리 실패", err); }
-      if (lockdownBanner) {
-        lockdownBanner.hidden = false;
-        lockdownBanner.textContent = "락다운이 해제되었습니다. 사용자 지문 인증 화면으로 이동합니다.";
-      }
-      if (window.onbeforeunload) {
-        window.onbeforeunload = null;
-      }
-      cleanupFns.forEach((fn) => { try { fn(); } catch (_) {} });
-      cleanupFns.length = 0;
-      scheduleRedirect("#/fp-user");
-    });
-    sessionHandlers.push(offLockdownStatus);
-  }
-
-  const claimResult = await claimOnceAdmin({ autoRedirect: false, onResolved: handleResolved });
-  if (claimResult.success) {
-    stopSession("claim-success");
-    sessionHandlers.forEach((off) => { try { off(); } catch (_) {} });
-    return;
-  }
-
-  if (claimResult.reason === "require_admin") {
-    await handleRejected({ reason: "require_admin", source: "claim" });
-  } else if (claimResult.reason === "callback_rejected") {
-    await handleRejected({
-      reason: claimResult.context?.rejectReason || "callback_rejected",
-      source: "claim",
-      context: claimResult.context,
-      me: claimResult.me
-    });
-  } else if (claimResult.reason) {
-    await handleRejected({ reason: claimResult.reason, source: "claim" });
-  }
-
-  const subscription = listenAndRedirect({
-    requireAdmin: true,
-    redirect: "#/admin",
-    autoRedirect: false,
-    onResolved: handleResolved,
-    onRejected: handleRejected
-  });
-
-  const handleUnload = () => {
-    subscription?.close?.();
-    sessionHandlers.forEach((off) => { try { off(); } catch (_) {} });
-    if (redirectTimer) clearTimeout(redirectTimer);
-    stopSession("navigation");
-  };
-  window.addEventListener("beforeunload", handleUnload, { once: true });
-  window.addEventListener("pagehide", handleUnload, { once: true });
-
-  sendStart();
+  }, 2000);
 }
