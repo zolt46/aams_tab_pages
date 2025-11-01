@@ -1,7 +1,7 @@
 import { mountMobileHeader } from "./util.js";
 import { connectWebSocket, onWebSocketEvent, sendWebSocketMessage } from "./api.js";
 
-const SITE = window.FP_SITE || "default";
+const SITE = window.FP_SITE || "site-01";
 const LOCKDOWN_SESSION_FLAG = "AAMS_LOCKDOWN_MODE";
 
 let unsubscribes = [];
@@ -10,7 +10,7 @@ let guardHandler = null;
 function setGuard(active) {
   if (active) {
     const handler = (event) => {
-      if (location.hash !== "#/lockdown") {
+      if (location.hash !== "#/fp-admin" && location.hash !== "#/lockdown") {
         event?.preventDefault?.();
         location.hash = "#/lockdown";
       }
@@ -60,7 +60,7 @@ function handleStatus(message) {
     document.body.classList.add("lockdown-mode");
     updateDisplay(message || {});
     setGuard(true);
-    if (location.hash !== "#/lockdown") {
+    if (location.hash !== "#/lockdown" && location.hash !== "#/fp-admin") {
       location.hash = "#/lockdown";
     }
   } else {
@@ -86,6 +86,14 @@ export async function initLockdownPage() {
   document.body.classList.add("lockdown-mode");
   sessionStorage.setItem(LOCKDOWN_SESSION_FLAG, "1");
   setGuard(true);
+
+  const adminBtn = document.getElementById("lockdownAdminNav");
+  if (adminBtn) {
+    adminBtn.addEventListener("click", () => {
+      sessionStorage.setItem(LOCKDOWN_SESSION_FLAG, "1");
+      location.hash = "#/fp-admin";
+    });
+  }
 
   connectWebSocket(SITE);
   const off = onWebSocketEvent("LOCKDOWN_STATUS", (msg) => {
