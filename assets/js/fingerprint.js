@@ -1,6 +1,6 @@
 // assets/js/fingerprint.js
 import { mountMobileHeader, saveMe } from "./util.js";
-import { connectWebSocket, sendWebSocketMessage, onWebSocketEvent } from "./api.js";
+import { connectWebSocket, sendWebSocketMessage, onWebSocketEvent, listUsers } from "./api.js";
 import { clearExecuteContext } from "./execute_context.js";
 
 const API_BASE = (window.AAMS_CONFIG && window.AAMS_CONFIG.API_BASE) || "";
@@ -44,6 +44,149 @@ function formatProfileSub(me = {}) {
     .map((value) => (value == null ? "" : String(value).trim()))
     .filter(Boolean)
     .join(" · ");
+}
+
+function resolvePersonId(person) {
+  if (!person || typeof person !== "object") return null;
+  const candidates = [person.id, person.person_id, person.personId, person.personID];
+  for (const candidate of candidates) {
+    const num = Number(candidate);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+}
+
+function formatManualMeta(person = {}, { includeAdminTag = true } = {}) {
+  const parts = [];
+  const userId = person.user_id || person.login_id || person.loginId || person.username;
+  if (userId) parts.push(`ID: ${userId}`);
+  const sub = formatProfileSub(person);
+  if (sub) parts.push(sub);
+  if (includeAdminTag && person.is_admin) parts.push("관리자");
+  return parts.join(" · ");
+}
+
+async function setupManualSelection(section, options = {}) {
+  if (!section) return;
+  const {
+    listRole,
+    roleFilter,
+    fallbackName = "사용자",
+    includeAdminTag = true,
+    loadingMessage = "목록을 불러오는 중입니다…",
+    emptyMessage = "표시할 사용자가 없습니다.",
+    errorMessage = "목록을 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요.",
+    onSelect,
+  } = options;
+
+  const listSelector = listRole ? `[data-role='${listRole}']` : "[data-role$='list']";
+  const listEl = section.querySelector(listSelector);
+  const messageEl = section.querySelector("[data-role='manual-message']");
+  if (!listEl) return;
+
+  const showMessage = (text) => {
+    if (!messageEl) return;
+    if (text) {
+      messageEl.textContent = text;
+      messageEl.hidden = false;
+    } else {
+      messageEl.textContent = "";
+      messageEl.hidden = true;
+    }
+  };
+
+  const setDisabled = (disabled) => {
+    listEl.querySelectorAll(".fp-manual-card").forEach((button) => {
+      button.disabled = !!disabled;
+      if (disabled) {
+        button.setAttribute("aria-disabled", "true");
+      } else {
+        button.removeAttribute("aria-disabled");
+      }
+    });
+  };
+
+  showMessage(loadingMessage);
+
+  let rows;
+  try {
+    rows = await listUsers(roleFilter ? { role: roleFilter } : undefined);
+  } catch (err) {
+    console.warn("[AAMS][fp] manual list fetch failed", err);
+    showMessage(errorMessage);
+    return;
+  }
+
+  const available = (Array.isArray(rows) ? rows : []).filter((person) => resolvePersonId(person) != null);
+  if (!available.length) {
+    listEl.innerHTML = "";
+    showMessage(emptyMessage);
+    return;
+  }
+
+  available.sort((a, b) => {
+    const nameA = String(a?.name || "");
+    const nameB = String(b?.name || "");
+    const nameCompare = nameA.localeCompare(nameB, "ko");
+    if (nameCompare !== 0) return nameCompare;
+    const idA = resolvePersonId(a) ?? 0;
+    const idB = resolvePersonId(b) ?? 0;
+    return idA - idB;
+  });
+
+  listEl.innerHTML = "";
+  showMessage("");
+
+  let locked = false;
+
+  const interpretResult = (result) => {
+    if (result == null) return { success: true };
+    if (typeof result === "boolean") return { success: result };
+    if (typeof result === "object") {
+      const success = result.success !== false;
+      const message = typeof result.message === "string" ? result.message : "";
+      return { success, message };
+    }
+    return { success: true };
+  };
+
+  const handleClick = async (person) => {
+    if (locked) return;
+    locked = true;
+    setDisabled(true);
+    showMessage("");
+    try {
+      const result = interpretResult(await (typeof onSelect === "function" ? onSelect(person) : true));
+      if (!result.success) {
+        if (result.message) showMessage(result.message);
+        locked = false;
+        setDisabled(false);
+      }
+    } catch (err) {
+      console.warn("[AAMS][fp] manual selection failed", err);
+      showMessage("로그인에 실패했습니다. 다시 시도해 주세요.");
+      locked = false;
+      setDisabled(false);
+    }
+  };
+
+  available.forEach((person) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "fp-manual-card";
+    const resolvedId = resolvePersonId(person);
+    if (resolvedId != null) button.dataset.personId = String(resolvedId);
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "fp-manual-name";
+    nameSpan.textContent = formatDisplayName(person, fallbackName);
+    const metaSpan = document.createElement("span");
+    metaSpan.className = "fp-manual-meta";
+    metaSpan.textContent = formatManualMeta(person, { includeAdminTag });
+    button.append(nameSpan);
+    if (metaSpan.textContent) button.append(metaSpan);
+    button.addEventListener("click", () => handleClick(person));
+    listEl.append(button);
+  });
 }
 
 function pickTarget(result, fallback) {
@@ -322,6 +465,46 @@ export async function initFpUser() {
     scheduleRedirect(ctx?.target || "#/user");
     return true;
   };
+
+  setupManualSelection(document.querySelector("[data-role='manual-user-section']"), {
+    listRole: "manual-user-list",
+    fallbackName: "사용자",
+    includeAdminTag: true,
+    loadingMessage: "사용자 목록을 불러오는 중입니다…",
+    emptyMessage: "표시할 사용자를 찾을 수 없습니다.",
+    errorMessage: "사용자 목록을 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요.",
+    onSelect: async (person) => {
+      const personId = resolvePersonId(person);
+      if (personId == null) {
+        return { success: false, message: "선택한 사용자 정보가 올바르지 않습니다." };
+      }
+      stage.setScanning();
+      try {
+        const base = {
+          id: personId,
+          name: person?.name,
+          is_admin: !!person?.is_admin,
+          rank: person?.rank,
+          unit: person?.unit ?? person?.unit_name,
+          position: person?.position ?? person?.duty,
+          serial: person?.serial ?? person?.military_id ?? person?.militaryId ?? person?.service_no,
+          user_id: person?.user_id ?? person?.login_id ?? person?.loginId,
+        };
+        const me = await enrichAndSave(base);
+        const target = resolveRedirect(me, "#/user");
+        await handleResolved(me, { source: "manual", target });
+        return { success: true };
+      } catch (err) {
+        console.warn("[AAMS][fp-user] manual login failed", err);
+        stage.showError("사용자 정보를 불러오지 못했습니다. 다시 시도해 주세요.", { autoResetMs: 3200 });
+        return {
+          success: false,
+          message: "사용자 정보를 불러오지 못했습니다. 다시 시도해 주세요.",
+        };
+      }
+    },
+  });
+
   const sessionHandlers = [
     onWebSocketEvent("FP_SESSION_STARTED", (message) => {
       if (message?.site && message.site !== SITE) return;
@@ -483,6 +666,48 @@ export async function initFpAdmin() {
     scheduleRedirect(ctx?.target || "#/admin");
     return true;
   };
+  setupManualSelection(document.querySelector("[data-role='manual-admin-section']"), {
+    listRole: "manual-admin-list",
+    roleFilter: "admin",
+    fallbackName: "관리자",
+    includeAdminTag: false,
+    loadingMessage: "관리자 목록을 불러오는 중입니다…",
+    emptyMessage: "표시할 관리자 계정을 찾을 수 없습니다.",
+    errorMessage: "관리자 목록을 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요.",
+    onSelect: async (person) => {
+      const personId = resolvePersonId(person);
+      if (personId == null) {
+        return { success: false, message: "선택한 관리자 정보가 올바르지 않습니다." };
+      }
+      stage.setScanning();
+      try {
+        const base = {
+          id: personId,
+          name: person?.name,
+          is_admin: true,
+          rank: person?.rank,
+          unit: person?.unit ?? person?.unit_name,
+          position: person?.position ?? person?.duty,
+          serial: person?.serial ?? person?.military_id ?? person?.militaryId ?? person?.service_no,
+          user_id: person?.user_id ?? person?.login_id ?? person?.loginId,
+        };
+        const me = await enrichAndSave(base);
+        const target = resolveRedirect(me, "#/admin");
+        const result = await handleResolved(me, { source: "manual", target });
+        if (result === false) {
+          return { success: false };
+        }
+        return { success: true };
+      } catch (err) {
+        console.warn("[AAMS][fp-admin] manual login failed", err);
+        stage.showError("관리자 정보를 불러오지 못했습니다. 다시 시도해 주세요.", { autoResetMs: 3200 });
+        return {
+          success: false,
+          message: "관리자 정보를 불러오지 못했습니다. 다시 시도해 주세요.",
+        };
+      }
+    },
+  });
 
   const handleRejected = async (info = {}) => {
     const reason = info.reason || "unknown";
